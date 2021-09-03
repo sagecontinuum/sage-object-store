@@ -1,0 +1,62 @@
+version: '3.7'
+
+
+services:
+
+  sage-obj:
+    image: waggle/sage-object-store:latest
+    entrypoint: /bin/bash
+    command: -c 'go run *.go'
+
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - minio
+      #- db
+    ports:
+      - "8080:80"
+    #env_file: mysql.env
+    environment:
+      TESTING_NOAUTH: ${TESTING_NOAUTH}
+      s3Endpoint: ${s3Endpoint}
+      s3accessKeyID: ${s3accessKeyID}
+      s3secretAccessKey: ${s3secretAccessKey}
+      s3bucket: ${s3bucket}
+      s3rootFolder: ${s3rootFolder}
+      tokenInfoEndpoint: ${tokenInfoEndpoint}
+      tokenInfoUser: ${tokenInfoUser}
+      tokenInfoPassword: ${tokenInfoPassword}
+    volumes:
+      - ${PWD}:/app
+
+
+  minio:
+    image: minio/minio:RELEASE.2021-08-20T18-32-01Z
+    volumes:
+      - sage-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  #db:
+  #  image: mysql:8
+  #  env_file: mysql.env
+
+  #  volumes:
+  #    - ${PWD}/init.sql:/docker-entrypoint-initdb.d/init.sql
+  #    - stage-storage-db:/var/lib/mysql
+
+volumes:
+  sage-data:
+  stage-storage-db:
+
