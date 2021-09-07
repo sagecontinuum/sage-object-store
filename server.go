@@ -38,6 +38,8 @@ var (
 
 	s3rootFolder string
 	s3bucket     string
+
+	version = "[[VERSION]]"
 )
 
 func init() {
@@ -112,15 +114,16 @@ func createRouter() {
 	mainRouter = mux.NewRouter()
 	r := mainRouter
 
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"id": "SAGE object store (node data)","available_resources":["api/v1/"]}`)
-	})
+	//r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	//	fmt.Fprintf(w, `{"id": "",\n"available_resources":["api/v1/"],\n"version":"%s"}`, version)
+	//})
+	r.HandleFunc("/", rootHandler)
 
 	log.Println("SAGE object store (node data)")
 	api := r.PathPrefix("/api/v1").Subrouter()
 	api.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
-		fmt.Fprintln(w, `{"id": "SAGE object store (node data)","available_resources":["data"]}`)
+		fmt.Fprint(w, `{"id": "SAGE object store (node data)",\n"available_resources":["data"]}`)
 	})
 
 	// GET /data/

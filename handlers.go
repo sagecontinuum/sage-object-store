@@ -18,9 +18,23 @@ type SageFileID struct {
 	Filename  string
 }
 
+type RootResponse struct {
+	ID      string   `json:"id"`
+	Res     []string `json:"available_resources"`
+	Version string   `json:"version,omitempty"`
+}
+
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
 
 	respondJSONError(w, http.StatusInternalServerError, "resource unknown")
+	//return
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	rr := RootResponse{ID: "SAGE object store (node data)",
+		Res:     []string{"api/v1/"},
+		Version: version}
+	respondJSON(w, http.StatusOK, &rr)
 	//return
 }
 
