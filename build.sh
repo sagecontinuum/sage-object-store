@@ -25,7 +25,7 @@ REL_COMMIT_COUNT=$(echo ${VERSION} | cut -d '-' -f 2)
 echo "REL_COMMIT_COUNT: ${REL_COMMIT_COUNT}"
 # if this is not 0, do not do a release
 # example: 2
-
+set +x
 
 if [[ ( "${REL_COMMIT_COUNT}_" != "0_" ) && "$1_" != "--force_" ]] ; then
     echo ""
