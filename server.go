@@ -120,7 +120,7 @@ func createRouter() {
 	api := r.PathPrefix("/api/v1").Subrouter()
 	api.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
-		fmt.Fprintln(w, `{"id": "SAGE object store (node data)","available_resources":["objects"]}`)
+		fmt.Fprintln(w, `{"id": "SAGE object store (node data)","available_resources":["data"]}`)
 	})
 
 	// GET /data/
