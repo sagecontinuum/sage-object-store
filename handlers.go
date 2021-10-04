@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -34,11 +35,15 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	rr := RootResponse{ID: "SAGE object store (node data)",
 		Res:     []string{"api/v1/"},
 		Version: version}
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	respondJSON(w, http.StatusOK, &rr)
 	//return
 }
 
 func getFileRequest(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	pathParams := mux.Vars(r)
 	sf := SageFileID{}
@@ -71,6 +76,8 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 	defer out.Body.Close()
 
 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	contentLength := *out.ContentLength
+	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
 	//w.Header().Set("Content-Length", FileSize)
 
 	buffer := make([]byte, 1024*1024)
