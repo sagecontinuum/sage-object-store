@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -40,6 +41,11 @@ var (
 	s3bucket     string
 
 	version = "[[VERSION]]"
+
+	policyRestrictedNodes          map[string]bool
+	policyRestrictedTaskSubstrings []string
+	policyRestrictedUsername       string
+	policyRestrictedPassword       string
 )
 
 func init() {
@@ -55,6 +61,21 @@ func configS3() {
 	var s3Endpoint string
 	var s3accessKeyID string
 	var s3secretAccessKey string
+
+	policyRestrictedNodes_str := os.Getenv("policyRestrictedNodes")
+	policyRestrictedTaskSubstrings_str := os.Getenv("policyRestrictedTaskSubstrings")
+
+	policyRestrictedNodes = make(map[string]bool)
+	policyRestrictedNodes_array := strings.Split(policyRestrictedNodes_str, ",")
+	for _, elem := range policyRestrictedNodes_array {
+		policyRestrictedNodes[strings.ToLower(elem)] = true
+		fmt.Println(elem + " add to policyRestrictedNodes")
+	}
+	policyRestrictedTaskSubstrings = strings.Split(policyRestrictedTaskSubstrings_str, ",")
+	fmt.Printf("policyRestrictedTaskSubstrings len: %d\n", len(policyRestrictedTaskSubstrings))
+
+	policyRestrictedUsername = os.Getenv("policyRestrictedUsername")
+	policyRestrictedPassword = os.Getenv("policyRestrictedPassword")
 
 	//flag.StringVar(&s3Endpoint, "s3Endpoint", "", "")
 	//flag.StringVar(&s3accessKeyID, "s3accessKeyID", "", "")

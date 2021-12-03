@@ -27,6 +27,12 @@ services:
       tokenInfoEndpoint: ${tokenInfoEndpoint}
       tokenInfoUser: ${tokenInfoUser}
       tokenInfoPassword: ${tokenInfoPassword}
+
+      policyRestrictedNodes: "abc,bca"
+      policyRestrictedTaskSubstrings: "bottom,street"
+
+      policyRestrictedUsername: "user"
+      policyRestrictedPassword: "secret"
     volumes:
       - ${PWD}:/app
 

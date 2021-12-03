@@ -51,7 +51,38 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 	sf.TaskID = pathParams["taskID"]
 	sf.NodeID = pathParams["nodeID"]
 
+	basic_auth_ok := false
+	username, password, ok := r.BasicAuth()
+	if ok {
+		if username != policyRestrictedUsername {
+			respondJSONError(w, http.StatusUnauthorized, "not authorized")
+			return
+		}
+		if password != policyRestrictedPassword {
+			respondJSONError(w, http.StatusUnauthorized, "not authorized")
+			return
+		}
+		basic_auth_ok = true
+	}
+	if !basic_auth_ok {
+
+		_, isRestrictedNode := policyRestrictedNodes[strings.ToLower(sf.NodeID)]
+
+		if isRestrictedNode {
+			for _, s := range policyRestrictedTaskSubstrings {
+				if strings.Contains(sf.TaskID, s) {
+					respondJSONError(w, http.StatusUnauthorized, "not authorized")
+					return
+				}
+
+			}
+		}
+	}
 	tfarray := strings.SplitN(pathParams["timestampAndFilename"], "-", 2)
+	if len(tfarray) < 2 {
+		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected")
+		return
+	}
 	sf.Timestamp = tfarray[0]
 	sf.Filename = tfarray[1]
 

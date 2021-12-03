@@ -74,52 +74,55 @@ spec:
       containers:
       - name: object-store
         image: waggle/sage-object-store:latest
-        env:
-          - name: s3Endpoint
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: s3Endpoint
-          - name: s3bucket
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: s3bucket
-          - name: s3rootFolder
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: s3rootFolder
-          - name: tokenInfoEndpoint
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: tokenInfoEndpoint
-          - name: TESTING_NOAUTH
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: TESTING_NOAUTH
-          - name: s3accessKeyID
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: s3accessKeyID
-          - name: s3secretAccessKey
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: s3secretAccessKey
-          - name: tokenInfoUser
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: tokenInfoUser
-          - name: tokenInfoPassword
-            valueFrom:
-              secretKeyRef:
-                name: object-store-secret
-                key: tokenInfoPassword
+        envFrom:
+        - secretRef:
+            name: object-store-secret
+        #env:
+          # - name: s3Endpoint
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: s3Endpoint
+          # - name: s3bucket
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: s3bucket
+          # - name: s3rootFolder
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: s3rootFolder
+          # - name: tokenInfoEndpoint
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: tokenInfoEndpoint
+          # - name: TESTING_NOAUTH
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: TESTING_NOAUTH
+          # - name: s3accessKeyID
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: s3accessKeyID
+          # - name: s3secretAccessKey
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: s3secretAccessKey
+          # - name: tokenInfoUser
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: tokenInfoUser
+          # - name: tokenInfoPassword
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: object-store-secret
+          #       key: tokenInfoPassword
 
         ports:
           - name: http

@@ -18,7 +18,8 @@ func authMW(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	vars := mux.Vars(r)
 	vars["username"] = ""
 
-	authorization := r.Header.Get("Authorization")
+	// WARNING Added XXXXX to Authorization to enable temporary BasicAuth
+	authorization := r.Header.Get("AuthorizationXXXXX")
 	if authorization == "" {
 		next(w, r)
 		//respondJSONError(w, http.StatusInternalServerError, "Authorization header is missing")
