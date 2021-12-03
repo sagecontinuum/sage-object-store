@@ -69,8 +69,11 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 		_, isRestrictedNode := policyRestrictedNodes[strings.ToLower(sf.NodeID)]
 
 		if isRestrictedNode {
+
 			for _, s := range policyRestrictedTaskSubstrings {
 				if strings.Contains(sf.TaskID, s) {
+					//w.Header().Set("WWW-Authenticate", "Basic")
+					w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
 					respondJSONError(w, http.StatusUnauthorized, "not authorized")
 					return
 				}
