@@ -153,6 +153,11 @@ func createRouter() {
 		negroni.Wrap(http.HandlerFunc(getFileRequest)),
 	)).Methods(http.MethodGet)
 
+	api.Handle("/data/{jobID}/{taskID}/{nodeID}/{timestampAndFilename}", negroni.New(
+		negroni.HandlerFunc(authMW),
+		negroni.Wrap(http.HandlerFunc(headFileRequest)),
+	)).Methods(http.MethodHead)
+
 	// http.Handle("/metrics", promhttp.Handler())
 	r.Handle("/metrics", negroni.New(
 		negroni.HandlerFunc(authMW),

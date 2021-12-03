@@ -48,15 +48,22 @@ func respondJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.WriteHeader(statusCode)
 
 	// json.NewEncoder(w).Encode(data)
-	s, err := json.MarshalIndent(data, "", "  ")
-	if err == nil {
-		w.Write(s)
+	if data != nil {
+		s, err := json.MarshalIndent(data, "", "  ")
+		if err == nil {
+			w.Write(s)
+		}
 	}
 
 }
 
 func respondJSONError(w http.ResponseWriter, statusCode int, msg string, args ...interface{}) {
-	errorStr := fmt.Sprintf(msg, args...)
-	log.Printf("Reply to client: %s", errorStr)
-	respondJSON(w, statusCode, ErrorStruct{Error: errorStr})
+
+	if msg != "" {
+		errorStr := fmt.Sprintf(msg, args...)
+		log.Printf("Reply to client: %s", errorStr)
+		respondJSON(w, statusCode, ErrorStruct{Error: errorStr})
+		return
+	}
+	respondJSON(w, statusCode, nil)
 }

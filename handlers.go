@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gorilla/mux"
 )
@@ -39,6 +40,60 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	respondJSON(w, http.StatusOK, &rr)
 	//return
+}
+
+func headFileRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	pathParams := mux.Vars(r)
+	sf := SageFileID{}
+	sf.JobID = pathParams["jobID"]
+	sf.TaskID = pathParams["taskID"]
+	sf.NodeID = pathParams["nodeID"]
+
+	tfarray := strings.SplitN(pathParams["timestampAndFilename"], "-", 2)
+	if len(tfarray) < 2 {
+		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected")
+		return
+	}
+	sf.Timestamp = tfarray[0]
+	sf.Filename = tfarray[1]
+
+	// TODO check permissions here
+
+	//w.Write([]byte("test"))
+	//respondJSON(w, http.StatusOK, &sf)
+
+	filename := sf.Timestamp + "-" + sf.Filename
+	s3key := path.Join(s3rootFolder, sf.JobID, sf.TaskID, sf.NodeID, filename)
+
+	headObjectInput := s3.HeadObjectInput{
+		Bucket: &s3bucket,
+		Key:    &s3key,
+	}
+
+	hoo, err := svc.HeadObject(&headObjectInput)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket:
+				respondJSONError(w, http.StatusNotFound, "Bucket not found: %s", err.Error())
+				return
+			case s3.ErrCodeNoSuchKey, "NotFound":
+				respondJSONError(w, http.StatusNotFound, "File not found: %s", err.Error())
+				return
+			}
+			aerr.Code()
+			respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObject returned: %s", aerr.Code())
+			return
+		}
+
+		respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObject returned: %s", err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, &hoo)
+
 }
 
 func getFileRequest(w http.ResponseWriter, r *http.Request) {
