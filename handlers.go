@@ -54,11 +54,8 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 	basic_auth_ok := false
 	username, password, ok := r.BasicAuth()
 	if ok {
-		if username != policyRestrictedUsername {
-			respondJSONError(w, http.StatusUnauthorized, "not authorized")
-			return
-		}
-		if password != policyRestrictedPassword {
+		if username != policyRestrictedUsername || password != policyRestrictedPassword {
+			w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
 			respondJSONError(w, http.StatusUnauthorized, "not authorized")
 			return
 		}
