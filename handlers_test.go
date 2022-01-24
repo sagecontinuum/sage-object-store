@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -93,8 +95,14 @@ func TestGetFileRequest(t *testing.T) {
 	}{
 		{
 			auth:         false,
-			url:          "/api/v1/data/j/t/n/0001-sample.jpg",
+			url:          "/api/v1/data/j/t/abc/" + fmt.Sprintf("%d", time.Now().UnixNano()) + "-sample.jpg",
 			expectStatus: http.StatusOK,
+		},
+		{
+			auth: false,
+			// three years ago, abc was not commissioned
+			url:          "/api/v1/data/j/t/abc/" + fmt.Sprintf("%d", time.Now().AddDate(-3, 0, 0).UnixNano()) + "-sample.jpg",
+			expectStatus: http.StatusUnauthorized,
 		},
 		{
 			auth:         false,
@@ -118,7 +126,7 @@ func TestGetFileRequest(t *testing.T) {
 
 	for _, test := range mytests {
 		_ = test
-
+		t.Logf("url: %s", test.url)
 		req, err := http.NewRequest("GET", test.url, nil)
 
 		if err != nil {

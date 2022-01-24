@@ -13,14 +13,16 @@ RUN go get -u gotest.tools/gotestsum
 
 
 COPY *.go go.* /app/
+COPY /vendor /app/vendor/
 
 RUN sed -i -e 's/\[\[VERSION\]\]/'${VERSION}'/' server.go
 RUN cat server.go | grep version
 
 RUN go build -o server .
+
 EXPOSE 8080
 
 
 
-ENTRYPOINT [ "./server" ]
+ENTRYPOINT [ "/app/server" ]
 CMD []

@@ -2,10 +2,12 @@ package main
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -20,10 +22,14 @@ type SageFileID struct {
 	Filename  string
 }
 
+type ResourceResponse struct {
+	ID  string   `json:"id"`
+	Res []string `json:"available_resources"`
+}
+
 type RootResponse struct {
-	ID      string   `json:"id"`
-	Res     []string `json:"available_resources"`
-	Version string   `json:"version,omitempty"`
+	ResourceResponse
+	Version string `json:"version,omitempty"`
 }
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
@@ -33,27 +39,32 @@ func defaultHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
-	rr := RootResponse{ID: "SAGE object store (node data)",
-		Res:     []string{"api/v1/"},
+
+	rr := RootResponse{
+		ResourceResponse: ResourceResponse{
+			ID:  "SAGE object store (node data)",
+			Res: []string{"api/v1/"},
+		},
 		Version: version}
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	//w.Header().Set("Access-Control-Allow-Origin", "*")
 	respondJSON(w, http.StatusOK, &rr)
 	//return
 }
 
 func headFileRequest(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
+	//w.Header().Set("Access-Control-Allow-Origin", "*")
+	ctx := r.Context()
 	pathParams := mux.Vars(r)
 	sf := SageFileID{}
 	sf.JobID = pathParams["jobID"]
 	sf.TaskID = pathParams["taskID"]
 	sf.NodeID = pathParams["nodeID"]
 
-	tfarray := strings.SplitN(pathParams["timestampAndFilename"], "-", 2)
+	timestampAndFilename := pathParams["timestampAndFilename"]
+	tfarray := strings.SplitN(timestampAndFilename, "-", 2)
 	if len(tfarray) < 2 {
-		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected")
+		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected, got %s (sf.JobID: %s)", timestampAndFilename, sf.JobID)
 		return
 	}
 	sf.Timestamp = tfarray[0]
@@ -72,7 +83,7 @@ func headFileRequest(w http.ResponseWriter, r *http.Request) {
 		Key:    &s3key,
 	}
 
-	hoo, err := svc.HeadObject(&headObjectInput)
+	hoo, err := svc.HeadObjectWithContext(ctx, &headObjectInput)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -84,11 +95,11 @@ func headFileRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			aerr.Code()
-			respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObject returned: %s", aerr.Code())
+			respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObjectWithContext returned: %s", aerr.Code())
 			return
 		}
 
-		respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObject returned: %s", err.Error())
+		respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObjectWithContext returned: %s", err.Error())
 		return
 	}
 
@@ -98,13 +109,21 @@ func headFileRequest(w http.ResponseWriter, r *http.Request) {
 
 func getFileRequest(w http.ResponseWriter, r *http.Request) {
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	//w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	pathParams := mux.Vars(r)
 	sf := SageFileID{}
 	sf.JobID = pathParams["jobID"]
 	sf.TaskID = pathParams["taskID"]
 	sf.NodeID = pathParams["nodeID"]
+
+	tfarray := strings.SplitN(pathParams["timestampAndFilename"], "-", 2)
+	if len(tfarray) < 2 {
+		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected")
+		return
+	}
+	sf.Timestamp = tfarray[0]
+	sf.Filename = tfarray[1]
 
 	basic_auth_ok := false
 	username, password, ok := r.BasicAuth()
@@ -132,14 +151,31 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 
 			}
 		}
+
+		// check if node is outside of commission time
+
+		timeFull, err := strconv.ParseInt(sf.Timestamp, 10, 64)
+		if err != nil {
+
+			respondJSONError(w, http.StatusBadRequest, "Timestamp in filename has wrong format: %s", err.Error())
+			return
+		}
+
+		timestamp := time.Unix(timeFull/1e9, timeFull%1e9)
+
+		cdate, ok := GetNodeCommissionDate(strings.ToLower(sf.NodeID))
+		if !ok {
+			w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
+			respondJSONError(w, http.StatusUnauthorized, "not authorized, node not commissioned")
+			return
+		}
+
+		if timestamp.Before(cdate) {
+			w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
+			respondJSONError(w, http.StatusUnauthorized, "not authorized, date before commission date")
+			return
+		}
 	}
-	tfarray := strings.SplitN(pathParams["timestampAndFilename"], "-", 2)
-	if len(tfarray) < 2 {
-		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected")
-		return
-	}
-	sf.Timestamp = tfarray[0]
-	sf.Filename = tfarray[1]
 
 	// TODO check permissions here
 
@@ -153,8 +189,8 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 		Bucket: &s3bucket,
 		Key:    &s3key,
 	}
-
-	out, err := svc.GetObject(&objectInput)
+	ctx := r.Context()
+	out, err := svc.GetObjectWithContext(ctx, &objectInput)
 	if err != nil {
 		respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.GetObject returned: %s", err.Error())
 		return
@@ -187,4 +223,16 @@ func getFileRequest(w http.ResponseWriter, r *http.Request) {
 
 	//respondJSONError(w, http.StatusInternalServerError, "resource unknown")
 	//return
+}
+
+func Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Do stuff here
+		log.Println(r.RequestURI)
+
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Call the next handler, which can be another middleware in the chain, or the final handler.
+		next.ServeHTTP(w, r)
+	})
 }

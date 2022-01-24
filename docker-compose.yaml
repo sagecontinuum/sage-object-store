@@ -5,8 +5,9 @@ services:
 
   sage-obj:
     image: waggle/sage-object-store:latest
-    entrypoint: /bin/bash
-    command: -c 'go run *.go'
+    #entrypoint: ./server
+    #entrypoint: /bin/bash
+    #command: -c 'go run *.go'
 
     build:
       context: .
@@ -33,8 +34,10 @@ services:
 
       policyRestrictedUsername: "user"
       policyRestrictedPassword: "secret"
-    volumes:
-      - ${PWD}:/app
+
+      productionURL: ${productionURL}
+    #volumes:
+    #  - ${PWD}:/app
 
 
   minio:
@@ -64,5 +67,5 @@ services:
 
 volumes:
   sage-data:
-  stage-storage-db:
+  #stage-storage-db:
 
