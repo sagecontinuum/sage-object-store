@@ -1,16 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/gorilla/mux"
 )
 
@@ -33,57 +33,91 @@ type RootResponse struct {
 }
 
 func defaultHandler(w http.ResponseWriter, r *http.Request) {
-
 	respondJSONError(w, http.StatusInternalServerError, "resource unknown")
-	//return
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
-
 	rr := RootResponse{
 		ResourceResponse: ResourceResponse{
 			ID:  "SAGE object store (node data)",
 			Res: []string{"api/v1/"},
 		},
-		Version: version}
-
-	//w.Header().Set("Access-Control-Allow-Origin", "*")
+		Version: "[[VERSION]]",
+	}
 	respondJSON(w, http.StatusOK, &rr)
-	//return
 }
 
-func headFileRequest(w http.ResponseWriter, r *http.Request) {
-	//w.Header().Set("Access-Control-Allow-Origin", "*")
-	ctx := r.Context()
-	pathParams := mux.Vars(r)
-	sf := SageFileID{}
-	sf.JobID = pathParams["jobID"]
-	sf.TaskID = pathParams["taskID"]
-	sf.NodeID = pathParams["nodeID"]
+func getRequestFileID(r *http.Request) (*SageFileID, error) {
+	vars := mux.Vars(r)
 
-	timestampAndFilename := pathParams["timestampAndFilename"]
-	tfarray := strings.SplitN(timestampAndFilename, "-", 2)
+	tfarray := strings.SplitN(vars["timestampAndFilename"], "-", 2)
 	if len(tfarray) < 2 {
-		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected, got %s (sf.JobID: %s)", timestampAndFilename, sf.JobID)
+		return nil, fmt.Errorf("filename has wrong format, dash expected, got %s (sf.JobID: %s)", vars["timestampAndFilename"], vars["jobID"])
+	}
+
+	return &SageFileID{
+		JobID:     vars["jobID"],
+		TaskID:    vars["taskID"],
+		NodeID:    vars["nodeID"],
+		Timestamp: tfarray[0],
+		Filename:  tfarray[1],
+	}, nil
+}
+
+func getBasicAuth(r *http.Request) (string, string) {
+	username, password, ok := r.BasicAuth()
+	if !ok {
+		return "", ""
+	}
+	return username, password
+}
+
+type SageStorageHandler struct {
+	S3API         s3iface.S3API
+	S3Bucket      string
+	S3RootFolder  string
+	Authenticator Authenticator
+}
+
+func filenameForFileID(sf *SageFileID) string {
+	return sf.Timestamp + "-" + sf.Filename
+}
+
+func (h *SageStorageHandler) s3KeyForFileID(sf *SageFileID) string {
+	return path.Join(h.S3RootFolder, sf.JobID, sf.TaskID, sf.NodeID, filenameForFileID(sf))
+}
+
+func (h *SageStorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// log request (debug mode only...)
+	// log.Printf("%s %s", r.Method, r.URL)
+
+	// storage is always read only, so we allow any origin
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// dispatch request to specific handler func
+	switch r.Method {
+	case http.MethodGet:
+		getFileRequest(h, w, r)
+	case http.MethodHead:
+		headFileRequest(h, w, r)
+	}
+}
+
+func headFileRequest(h *SageStorageHandler, w http.ResponseWriter, r *http.Request) {
+	sf, err := getRequestFileID(r)
+	if err != nil {
+		respondJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	sf.Timestamp = tfarray[0]
-	sf.Filename = tfarray[1]
 
-	// TODO check permissions here
-
-	//w.Write([]byte("test"))
-	//respondJSON(w, http.StatusOK, &sf)
-
-	filename := sf.Timestamp + "-" + sf.Filename
-	s3key := path.Join(s3rootFolder, sf.JobID, sf.TaskID, sf.NodeID, filename)
+	s3key := h.s3KeyForFileID(sf)
 
 	headObjectInput := s3.HeadObjectInput{
-		Bucket: &s3bucket,
+		Bucket: &h.S3Bucket,
 		Key:    &s3key,
 	}
 
-	hoo, err := svc.HeadObjectWithContext(ctx, &headObjectInput)
+	hoo, err := h.S3API.HeadObjectWithContext(r.Context(), &headObjectInput)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -95,144 +129,58 @@ func headFileRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			aerr.Code()
-			respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObjectWithContext returned: %s", aerr.Code())
+			respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", aerr.Code())
 			return
 		}
 
-		respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.HeadObjectWithContext returned: %s", err.Error())
+		respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", err.Error())
 		return
 	}
 
 	respondJSON(w, http.StatusOK, &hoo)
-
 }
 
-func getFileRequest(w http.ResponseWriter, r *http.Request) {
-
-	//w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	pathParams := mux.Vars(r)
-	sf := SageFileID{}
-	sf.JobID = pathParams["jobID"]
-	sf.TaskID = pathParams["taskID"]
-	sf.NodeID = pathParams["nodeID"]
-
-	tfarray := strings.SplitN(pathParams["timestampAndFilename"], "-", 2)
-	if len(tfarray) < 2 {
-		respondJSONError(w, http.StatusInternalServerError, "Filename has wrong format, dash expected")
+func getFileRequest(h *SageStorageHandler, w http.ResponseWriter, r *http.Request) {
+	sf, err := getRequestFileID(r)
+	if err != nil {
+		respondJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	sf.Timestamp = tfarray[0]
-	sf.Filename = tfarray[1]
 
-	basic_auth_ok := false
-	username, password, ok := r.BasicAuth()
-	if ok {
-		if username != policyRestrictedUsername || password != policyRestrictedPassword {
-			w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
-			respondJSONError(w, http.StatusUnauthorized, "not authorized")
-			return
-		}
-		basic_auth_ok = true
+	s3key := h.s3KeyForFileID(sf)
+
+	username, password := getBasicAuth(r)
+
+	if !h.Authenticator.Authorized(sf, username, password) {
+		w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
+		respondJSONError(w, http.StatusUnauthorized, "not authorized")
+		return
 	}
-	if !basic_auth_ok {
-
-		_, isRestrictedNode := policyRestrictedNodes[strings.ToLower(sf.NodeID)]
-
-		if isRestrictedNode {
-
-			for _, s := range policyRestrictedTaskSubstrings {
-				if strings.Contains(sf.TaskID, s) {
-					//w.Header().Set("WWW-Authenticate", "Basic")
-					w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
-					respondJSONError(w, http.StatusUnauthorized, "not authorized")
-					return
-				}
-
-			}
-		}
-
-		// check if node is outside of commission time
-
-		timeFull, err := strconv.ParseInt(sf.Timestamp, 10, 64)
-		if err != nil {
-
-			respondJSONError(w, http.StatusBadRequest, "Timestamp in filename has wrong format: %s", err.Error())
-			return
-		}
-
-		timestamp := time.Unix(timeFull/1e9, timeFull%1e9)
-
-		cdate, ok := GetNodeCommissionDate(strings.ToLower(sf.NodeID))
-		if !ok {
-			w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
-			respondJSONError(w, http.StatusUnauthorized, "not authorized, node not commissioned")
-			return
-		}
-
-		if timestamp.Before(cdate) {
-			w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
-			respondJSONError(w, http.StatusUnauthorized, "not authorized, date before commission date")
-			return
-		}
-	}
-
-	// TODO check permissions here
-
-	//w.Write([]byte("test"))
-	//respondJSON(w, http.StatusOK, &sf)
-
-	filename := sf.Timestamp + "-" + sf.Filename
-	s3key := path.Join(s3rootFolder, sf.JobID, sf.TaskID, sf.NodeID, filename)
 
 	objectInput := s3.GetObjectInput{
-		Bucket: &s3bucket,
+		Bucket: &h.S3Bucket,
 		Key:    &s3key,
 	}
-	ctx := r.Context()
-	out, err := svc.GetObjectWithContext(ctx, &objectInput)
+
+	out, err := h.S3API.GetObjectWithContext(r.Context(), &objectInput)
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Error getting data, svc.GetObject returned: %s", err.Error())
+		respondJSONError(w, http.StatusInternalServerError, "Error getting data, GetObject returned: %s", err.Error())
 		return
 	}
 	defer out.Body.Close()
 
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	contentLength := *out.ContentLength
-	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
-	//w.Header().Set("Content-Length", FileSize)
+	w.Header().Set("Content-Disposition", "attachment; filename="+filenameForFileID(sf))
 
-	buffer := make([]byte, 1024*1024)
-	w.WriteHeader(http.StatusOK)
-	for {
-		n, err := out.Body.Read(buffer)
-		if err != nil {
-
-			if err == io.EOF {
-				w.Write(buffer[:n]) //should handle any remainding bytes.
-				fileDownloadByteSize.Add(float64(n))
-				break
-			}
-
-			respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
-			return
-		}
-		w.Write(buffer[0:n])
-		fileDownloadByteSize.Add(float64(n))
+	if out.ContentLength != nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
 	}
 
-	//respondJSONError(w, http.StatusInternalServerError, "resource unknown")
-	//return
-}
+	w.WriteHeader(http.StatusOK)
 
-func Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Do stuff here
-		log.Println(r.RequestURI)
-
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		// Call the next handler, which can be another middleware in the chain, or the final handler.
-		next.ServeHTTP(w, r)
-	})
+	written, err := io.Copy(w, out.Body)
+	fileDownloadByteSize.Add(float64(written))
+	if err != nil {
+		respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
+		return
+	}
 }
