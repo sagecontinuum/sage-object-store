@@ -136,19 +136,21 @@ func randomNodeID() string {
 func generateRandomNodeList(n int) map[string]*TableAuthenticatorNode {
 	nodes := make(map[string]*TableAuthenticatorNode)
 	for i := 0; i < n; i++ {
+		// generate a random commission date in the past
+		cdate := time.Now().AddDate(0, 0, -rand.Intn(1000))
+
 		nodes[randomNodeID()] = &TableAuthenticatorNode{
 			Restricted:     rand.Intn(2) == 0,
-			CommissionDate: makeCommissionDate(-1, 0, 0),
+			CommissionDate: &cdate,
 		}
 	}
 	return nodes
 }
 
-func TestFuzzRestrictedNodes(t *testing.T) {
+func TestNodePolicyFuzz(t *testing.T) {
+	nodes := generateRandomNodeList(1000)
+
 	TableAuthenticator := &TableAuthenticator{}
-
-	nodes := generateRandomNodeList(200)
-
 	TableAuthenticator.UpdateConfig(&TableAuthenticatorConfig{
 		Username:                  "user",
 		Password:                  "secret",
@@ -161,58 +163,88 @@ func TestFuzzRestrictedNodes(t *testing.T) {
 		Authenticator: TableAuthenticator,
 	}
 
-	r := createRouter(handler)
+	router := createRouter(handler)
 
-	// hmm... we can also fuzz the username / password check...
-
-	for nodeID, node := range nodes {
-		url := fmt.Sprintf("/api/v1/data/sage/safe-task/%s/%s-sample.jpg", nodeID, timestamp(time.Now()))
-
-		// test that no auth returns unauthorized for restricted node
-		if node.Restricted {
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				t.Fatalf("failed: %s", err.Error())
-			}
-
-			rr := httptest.NewRecorder()
-			r.ServeHTTP(rr, req)
-			if rr.Code != http.StatusUnauthorized {
-				t.Fatalf("should have returned unauthorized for %s", nodeID)
-			}
-		}
-
-		// test that invalid password returns unauthorized for restricted node
-		if node.Restricted {
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				t.Fatalf("failed: %s", err.Error())
-			}
-
-			req.SetBasicAuth("userX", "secret")
-			rr := httptest.NewRecorder()
-			r.ServeHTTP(rr, req)
-			if rr.Code != http.StatusUnauthorized {
-				t.Fatalf("should have returned unauthorized for %s", nodeID)
-			}
-		}
-
-		// test that authorized when correct credentials are provided
+	// helper func for setting up a request and checking status
+	hasStatus := func(url string, username, password string, hasAuth bool, status int) bool {
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			t.Fatalf("failed: %s", err.Error())
+			return false
+		}
+		if hasAuth {
+			req.SetBasicAuth(username, password)
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr.Code == status
+	}
+
+	// helper func which defines how a public resource should behave
+	public := func(urls ...string) bool {
+		for _, url := range urls {
+			if !hasStatus(url, "", "", false, http.StatusOK) {
+				return false
+			}
+			if !hasStatus(url, "any", "credentials", true, http.StatusOK) {
+				return false
+			}
+			if !hasStatus(url, "user", "secret", true, http.StatusOK) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// helper func which defines how a private resource should behave
+	private := func(urls ...string) bool {
+		for _, url := range urls {
+			if !hasStatus(url, "", "", false, http.StatusUnauthorized) {
+				return false
+			}
+			if !hasStatus(url, "wrong", "credentials", true, http.StatusUnauthorized) {
+				return false
+			}
+			if !hasStatus(url, "user", "secret", true, http.StatusOK) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// check policies against all nodes
+	for nodeID, node := range nodes {
+		urlAt := func(t time.Time) string {
+			return fmt.Sprintf("/api/v1/data/sage/safe-task/%s/%s-sample.jpg", nodeID, timestamp(t))
 		}
 
-		req.SetBasicAuth("user", "secret")
-		rr := httptest.NewRecorder()
-		r.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("should have returned authorized for %s", nodeID)
+		switch {
+		case node.Restricted:
+			if !private(urlAt(time.Now()),
+				urlAt(time.Now().AddDate(0, 0, -2000)),
+				urlAt(time.Now().AddDate(1, 0, 0))) {
+				t.Fatalf("restricted node must be private regardless of commissioning date")
+			}
+		case !node.Restricted && node.CommissionDate != nil:
+			if !public(urlAt(*node.CommissionDate)) {
+				t.Fatalf("nonrestricted node with commissioning date must be public on commissioning date")
+			}
+
+			if !public(urlAt(node.CommissionDate.AddDate(1, 0, 0))) {
+				t.Fatalf("nonrestricted node with commissioning date must be public after commissioning date")
+			}
+
+			if !private(urlAt(node.CommissionDate.AddDate(0, 0, -1)),
+				urlAt(node.CommissionDate.AddDate(0, -1, 0)),
+				urlAt(node.CommissionDate.AddDate(-1, 0, 0))) {
+				t.Fatalf("nonrestricted node with commissioning date must be private before commissioning date")
+			}
+		case !node.Restricted && node.CommissionDate == nil:
+			if !private(urlAt(time.Now())) {
+				t.Fatalf("nonrestricted node without commissioning date must be private")
+			}
 		}
 	}
 }
-
-// TODO clean up request code case
 
 func TestGetRequest(t *testing.T) {
 	var mytests = map[string]struct {
