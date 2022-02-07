@@ -79,7 +79,7 @@ func getTestRouter() *mux.Router {
 		},
 	})
 
-	handler := &SageStorageHandler{
+	handler := &StorageHandler{
 		S3API:         &mockS3Client{},
 		Authenticator: TableAuthenticator,
 	}
@@ -87,44 +87,7 @@ func getTestRouter() *mux.Router {
 	return createRouter(handler)
 }
 
-func TestRootHandler(t *testing.T) {
-	req, err := http.NewRequest("GET", "/", nil)
-
-	if err != nil {
-		t.Fatalf("failed: %s", err.Error())
-	}
-
-	rr := httptest.NewRecorder()
-
-	http.HandlerFunc(rootHandler).ServeHTTP(rr, req)
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusOK)
-	}
-
-	result := RootResponse{}
-
-	bs, _ := rr.Body.ReadBytes('@')
-	t.Logf("bs: %s", bs)
-	json.Unmarshal(bs, &result)
-
-	// expect
-	// {
-	//	"id": "SAGE object store (node data)",
-	//	"available_resources": [
-	//	  "api/v1/"
-	//	],
-	//	"version": "[[VERSION]]"
-	//  }%
-
-	t.Logf("got: %v", result)
-	if len(result.ID) == 0 {
-		t.Fatal("response has no ID")
-	}
-	//t.Fatal("---")
-}
-
-func TestHeadFileRequest(t *testing.T) {
+func TestHeadRequest(t *testing.T) {
 	r := getTestRouter()
 
 	req, err := http.NewRequest("HEAD", "/api/v1/data/j/t/n/0001-sample.jpg", nil)
@@ -193,7 +156,7 @@ func TestFuzzRestrictedNodes(t *testing.T) {
 		RestrictedTasksSubstrings: []string{},
 	})
 
-	handler := &SageStorageHandler{
+	handler := &StorageHandler{
 		S3API:         &mockS3Client{},
 		Authenticator: TableAuthenticator,
 	}
@@ -251,7 +214,7 @@ func TestFuzzRestrictedNodes(t *testing.T) {
 
 // TODO clean up request code case
 
-func TestGetFileRequest(t *testing.T) {
+func TestGetRequest(t *testing.T) {
 	var mytests = map[string]struct {
 		requiresAuth bool
 		url          string

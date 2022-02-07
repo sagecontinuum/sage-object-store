@@ -14,35 +14,14 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type ResourceResponse struct {
-	ID  string   `json:"id"`
-	Res []string `json:"available_resources"`
-}
-
-type RootResponse struct {
-	ResourceResponse
-	Version string `json:"version,omitempty"`
-}
-
-func rootHandler(w http.ResponseWriter, r *http.Request) {
-	rr := RootResponse{
-		ResourceResponse: ResourceResponse{
-			ID:  "SAGE object store (node data)",
-			Res: []string{"api/v1/"},
-		},
-		Version: "[[VERSION]]",
-	}
-	respondJSON(w, http.StatusOK, &rr)
-}
-
-type SageStorageHandler struct {
+type StorageHandler struct {
 	S3API         s3iface.S3API
 	S3Bucket      string
 	S3RootFolder  string
 	Authenticator Authenticator
 }
 
-type SageFile struct {
+type StorageFile struct {
 	JobID     string
 	TaskID    string
 	NodeID    string
@@ -50,7 +29,7 @@ type SageFile struct {
 	Filename  string
 }
 
-func getRequestFileID(r *http.Request) (*SageFile, error) {
+func getRequestFileID(r *http.Request) (*StorageFile, error) {
 	vars := mux.Vars(r)
 
 	tfarray := strings.SplitN(vars["timestampAndFilename"], "-", 2)
@@ -58,7 +37,7 @@ func getRequestFileID(r *http.Request) (*SageFile, error) {
 		return nil, fmt.Errorf("filename has wrong format, dash expected, got %s (sf.JobID: %s)", vars["timestampAndFilename"], vars["jobID"])
 	}
 
-	return &SageFile{
+	return &StorageFile{
 		JobID:     vars["jobID"],
 		TaskID:    vars["taskID"],
 		NodeID:    vars["nodeID"],
@@ -67,15 +46,15 @@ func getRequestFileID(r *http.Request) (*SageFile, error) {
 	}, nil
 }
 
-func filenameForFileID(sf *SageFile) string {
+func filenameForFileID(sf *StorageFile) string {
 	return sf.Timestamp + "-" + sf.Filename
 }
 
-func (h *SageStorageHandler) s3KeyForFileID(sf *SageFile) string {
+func (h *StorageHandler) s3KeyForFileID(sf *StorageFile) string {
 	return path.Join(h.S3RootFolder, sf.JobID, sf.TaskID, sf.NodeID, filenameForFileID(sf))
 }
 
-func (h *SageStorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// log request (debug mode only...)
 	// log.Printf("%s %s", r.Method, r.URL)
 
@@ -95,7 +74,7 @@ func (h *SageStorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *SageStorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
+func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 	sf, err := getRequestFileID(r)
 	if err != nil {
 		respondJSONError(w, http.StatusInternalServerError, err.Error())
@@ -132,7 +111,7 @@ func (h *SageStorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, &hoo)
 }
 
-func (h *SageStorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
+func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 	sf, err := getRequestFileID(r)
 	if err != nil {
 		respondJSONError(w, http.StatusInternalServerError, err.Error())

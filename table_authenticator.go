@@ -34,7 +34,7 @@ func (a *TableAuthenticator) UpdateConfig(config *TableAuthenticatorConfig) {
 }
 
 // Authorized returns whether or not the given user is authorized to access the given file.
-func (a *TableAuthenticator) Authorized(sf *SageFile, username, password string, hasAuth bool) bool {
+func (a *TableAuthenticator) Authorized(sf *StorageFile, username, password string, hasAuth bool) bool {
 	// TODO(sean) this implementation only uses a single credential for everything,
 	// as can be seen below. later, we probably want to update this
 	return a.authenticated(username, password, hasAuth) || a.allowed(sf)
@@ -44,7 +44,7 @@ func (a *TableAuthenticator) authenticated(username, password string, hasAuth bo
 	return hasAuth && username == a.config.Username && password == a.config.Password
 }
 
-func (m *TableAuthenticator) allowed(sf *SageFile) bool {
+func (m *TableAuthenticator) allowed(sf *StorageFile) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 

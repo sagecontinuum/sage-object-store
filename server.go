@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func createRouter(handler *SageStorageHandler) *mux.Router {
+func createRouter(handler *StorageHandler) *mux.Router {
 	router := mux.NewRouter()
 
 	// add discovery endpoint to show what's under /
@@ -45,7 +45,7 @@ func createRouter(handler *SageStorageHandler) *mux.Router {
 		})
 	})
 
-	// TODO move vars in URL in SageStorageHandler
+	// TODO move vars in URL in StorageHandler
 	// GET /data/
 	router.Handle("/api/v1/data/{jobID}/{taskID}/{nodeID}/{timestampAndFilename}", handler).Methods(http.MethodGet, http.MethodHead, http.MethodOptions)
 
@@ -90,7 +90,7 @@ func main() {
 	})
 	// TODO(sean) dispatch sync with production sheet
 
-	handler := &SageStorageHandler{
+	handler := &StorageHandler{
 		S3API:         s3.New(session),
 		S3Bucket:      s3bucket,
 		S3RootFolder:  s3rootFolder,
