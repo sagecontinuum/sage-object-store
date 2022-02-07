@@ -1,5 +1,5 @@
 package main
 
 type Authenticator interface {
-	Authorized(sf *SageFileID, username, password string) bool
+	Authorized(sf *SageFileID, username, password string, hasAuth bool) bool
 }

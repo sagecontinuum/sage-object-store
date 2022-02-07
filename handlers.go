@@ -64,14 +64,6 @@ func getRequestFileID(r *http.Request) (*SageFileID, error) {
 	}, nil
 }
 
-func getBasicAuth(r *http.Request) (string, string) {
-	username, password, ok := r.BasicAuth()
-	if !ok {
-		return "", ""
-	}
-	return username, password
-}
-
 type SageStorageHandler struct {
 	S3API         s3iface.S3API
 	S3Bucket      string
@@ -149,9 +141,9 @@ func getFileRequest(h *SageStorageHandler, w http.ResponseWriter, r *http.Reques
 
 	s3key := h.s3KeyForFileID(sf)
 
-	username, password := getBasicAuth(r)
+	username, password, hasAuth := r.BasicAuth()
 
-	if !h.Authenticator.Authorized(sf, username, password) {
+	if !h.Authenticator.Authorized(sf, username, password, hasAuth) {
 		w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
 		respondJSONError(w, http.StatusUnauthorized, "not authorized")
 		return
