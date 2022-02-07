@@ -14,14 +14,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type SageFileID struct {
-	JobID     string
-	TaskID    string
-	NodeID    string
-	Timestamp string
-	Filename  string
-}
-
 type ResourceResponse struct {
 	ID  string   `json:"id"`
 	Res []string `json:"available_resources"`
@@ -30,10 +22,6 @@ type ResourceResponse struct {
 type RootResponse struct {
 	ResourceResponse
 	Version string `json:"version,omitempty"`
-}
-
-func defaultHandler(w http.ResponseWriter, r *http.Request) {
-	respondJSONError(w, http.StatusInternalServerError, "resource unknown")
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +35,22 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, &rr)
 }
 
-func getRequestFileID(r *http.Request) (*SageFileID, error) {
+type SageStorageHandler struct {
+	S3API         s3iface.S3API
+	S3Bucket      string
+	S3RootFolder  string
+	Authenticator Authenticator
+}
+
+type SageFile struct {
+	JobID     string
+	TaskID    string
+	NodeID    string
+	Timestamp string
+	Filename  string
+}
+
+func getRequestFileID(r *http.Request) (*SageFile, error) {
 	vars := mux.Vars(r)
 
 	tfarray := strings.SplitN(vars["timestampAndFilename"], "-", 2)
@@ -55,7 +58,7 @@ func getRequestFileID(r *http.Request) (*SageFileID, error) {
 		return nil, fmt.Errorf("filename has wrong format, dash expected, got %s (sf.JobID: %s)", vars["timestampAndFilename"], vars["jobID"])
 	}
 
-	return &SageFileID{
+	return &SageFile{
 		JobID:     vars["jobID"],
 		TaskID:    vars["taskID"],
 		NodeID:    vars["nodeID"],
@@ -64,18 +67,11 @@ func getRequestFileID(r *http.Request) (*SageFileID, error) {
 	}, nil
 }
 
-type SageStorageHandler struct {
-	S3API         s3iface.S3API
-	S3Bucket      string
-	S3RootFolder  string
-	Authenticator Authenticator
-}
-
-func filenameForFileID(sf *SageFileID) string {
+func filenameForFileID(sf *SageFile) string {
 	return sf.Timestamp + "-" + sf.Filename
 }
 
-func (h *SageStorageHandler) s3KeyForFileID(sf *SageFileID) string {
+func (h *SageStorageHandler) s3KeyForFileID(sf *SageFile) string {
 	return path.Join(h.S3RootFolder, sf.JobID, sf.TaskID, sf.NodeID, filenameForFileID(sf))
 }
 
@@ -88,14 +84,18 @@ func (h *SageStorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// dispatch request to specific handler func
 	switch r.Method {
-	case http.MethodGet:
-		getFileRequest(h, w, r)
+	case http.MethodOptions:
+		// TODO(sean) implement OPTIONS response
 	case http.MethodHead:
-		headFileRequest(h, w, r)
+		h.handleHEAD(w, r)
+	case http.MethodGet:
+		h.handleGET(w, r)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
 }
 
-func headFileRequest(h *SageStorageHandler, w http.ResponseWriter, r *http.Request) {
+func (h *SageStorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 	sf, err := getRequestFileID(r)
 	if err != nil {
 		respondJSONError(w, http.StatusInternalServerError, err.Error())
@@ -132,7 +132,7 @@ func headFileRequest(h *SageStorageHandler, w http.ResponseWriter, r *http.Reque
 	respondJSON(w, http.StatusOK, &hoo)
 }
 
-func getFileRequest(h *SageStorageHandler, w http.ResponseWriter, r *http.Request) {
+func (h *SageStorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 	sf, err := getRequestFileID(r)
 	if err != nil {
 		respondJSONError(w, http.StatusInternalServerError, err.Error())

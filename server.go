@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,20 +17,41 @@ import (
 func createRouter(handler *SageStorageHandler) *mux.Router {
 	router := mux.NewRouter()
 
-	router.HandleFunc("/", rootHandler).Methods(http.MethodGet, http.MethodOptions)
+	// add discovery endpoint to show what's under /
+	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		type resp struct {
+			ID      string   `json:"id"`
+			Res     []string `json:"available_resources"`
+			Version string   `json:"version,omitempty"`
+		}
 
+		respondJSON(w, http.StatusOK, &resp{
+			ID:      "SAGE object store (node data)",
+			Res:     []string{"api/v1/"},
+			Version: "[[VERSION]]",
+		})
+	})
+
+	// add discovery endpoint to show what's under /api/v1/
 	router.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"id": "SAGE object store (node data)",\n"available_resources":["data"]}`)
+		type resp struct {
+			ID  string   `json:"id"`
+			Res []string `json:"available_resources"`
+		}
+
+		respondJSON(w, http.StatusOK, &resp{
+			ID:  "SAGE object store (node data)",
+			Res: []string{"data/"},
+		})
 	})
 
 	// TODO move vars in URL in SageStorageHandler
 	// GET /data/
 	router.Handle("/api/v1/data/{jobID}/{taskID}/{nodeID}/{timestampAndFilename}", handler).Methods(http.MethodGet, http.MethodHead, http.MethodOptions)
 
-	// http.Handle("/metrics", promhttp.Handler())
+	// add prometheus metrics endpoint
 	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
 
-	router.NotFoundHandler = http.HandlerFunc(defaultHandler)
 	router.Use(mux.CORSMethodMiddleware(router))
 	return router
 }
