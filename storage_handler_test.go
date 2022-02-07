@@ -87,6 +87,86 @@ func getTestRouter() *mux.Router {
 	return createRouter(handler)
 }
 
+func makePolicyHelperFuncs(router *mux.Router) (func(urls ...string) bool, func(urls ...string) bool) {
+	// unauthorized checks if response code is Unauthorized
+	unauthorized := func(url string, username, password string, hasAuth bool) bool {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return false
+		}
+		if hasAuth {
+			req.SetBasicAuth(username, password)
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr.Code == http.StatusUnauthorized
+	}
+
+	// authorized checks if response code is OK and that content matches mock file
+	authorized := func(url string, username, password string, hasAuth bool) bool {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return false
+		}
+		if hasAuth {
+			req.SetBasicAuth(username, password)
+		}
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			return false
+		}
+		// this will be confusing here
+		// if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
+		// 	t.Fatalf("Access-Control-Allow-Origin != *, instead %q", rr.Header().Get("Access-Control-Allow-Origin"))
+		// }
+		b, err := io.ReadAll(rr.Result().Body)
+		if err != nil {
+			return false
+		}
+		expectBody := []byte("I am fake file content")
+		if !bytes.Equal(b, expectBody) {
+			return false
+		}
+		if rr.Result().ContentLength != int64(len(expectBody)) {
+			return false
+		}
+		return true
+	}
+
+	public := func(urls ...string) bool {
+		for _, url := range urls {
+			if !authorized(url, "", "", false) {
+				return false
+			}
+			if !authorized(url, "any", "credentials", true) {
+				return false
+			}
+			if !authorized(url, "user", "secret", true) {
+				return false
+			}
+		}
+		return true
+	}
+
+	private := func(urls ...string) bool {
+		for _, url := range urls {
+			if !unauthorized(url, "", "", false) {
+				return false
+			}
+			if !unauthorized(url, "wrong", "credentials", true) {
+				return false
+			}
+			if !authorized(url, "user", "secret", true) {
+				return false
+			}
+		}
+		return true
+	}
+
+	return public, private
+}
+
 func TestHeadRequest(t *testing.T) {
 	r := getTestRouter()
 
@@ -122,6 +202,73 @@ func TestHeadRequest(t *testing.T) {
 
 func timestamp(t time.Time) string {
 	return fmt.Sprintf("%d", t.UnixNano())
+}
+
+func TestGetRequest(t *testing.T) {
+	// NOTE there is some overlap with the node policy fuzz test. this test is still required as
+	// the fuzz test does not check for restricted tasks
+	var mytests = map[string]struct {
+		public bool
+		url    string
+	}{
+		"allow": {
+			public: true,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now())),
+		},
+		"allowPast1": {
+			public: true,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now().AddDate(0, -6, 0))),
+		},
+		"allowPast2": {
+			public: true,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned3Y/%s-sample.jpg", timestamp(time.Now().AddDate(-2, 0, 0))),
+		},
+		"allowFuture": {
+			public: true,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now().AddDate(0, 6, 0))),
+		},
+		"restrictNode1": {
+			public: false,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/restrictedNode1/%s-sample.jpg", timestamp(time.Now())),
+		},
+		"restrictNode2": {
+			public: false,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/restrictedNode2/%s-sample.jpg", timestamp(time.Now())),
+		},
+		"restrictTask": {
+			public: false,
+			url:    fmt.Sprintf("/api/v1/data/sage/imagesampler-bottom/commissioned1Y/%s-sample.jpg", timestamp(time.Now())),
+		},
+		"restrictPast1": {
+			public: false,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now().AddDate(-1, 0, -1))),
+		},
+		"restrictPast2": {
+			public: false,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned3Y/%s-sample.jpg", timestamp(time.Now().AddDate(-3, 0, -1))),
+		},
+		"restrictUncommissioned": {
+			public: false,
+			url:    fmt.Sprintf("/api/v1/data/sage/safe-task/uncommissioned/%s-sample.jpg", timestamp(time.Now())),
+		},
+	}
+
+	router := getTestRouter()
+	public, private := makePolicyHelperFuncs(router)
+
+	for name, test := range mytests {
+		t.Run(name, func(t *testing.T) {
+			if test.public {
+				if !public(test.url) {
+					t.Fatalf("test case %q should have been public", test.url)
+				}
+			} else {
+				if !private(test.url) {
+					t.Fatalf("test case %q should have been private", test.url)
+				}
+			}
+		})
+	}
 }
 
 func randomNodeID() string {
@@ -164,52 +311,7 @@ func TestNodePolicyFuzz(t *testing.T) {
 	}
 
 	router := createRouter(handler)
-
-	// helper func for setting up a request and checking status
-	hasStatus := func(url string, username, password string, hasAuth bool, status int) bool {
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			return false
-		}
-		if hasAuth {
-			req.SetBasicAuth(username, password)
-		}
-		rr := httptest.NewRecorder()
-		router.ServeHTTP(rr, req)
-		return rr.Code == status
-	}
-
-	// helper func which defines how a public resource should behave
-	public := func(urls ...string) bool {
-		for _, url := range urls {
-			if !hasStatus(url, "", "", false, http.StatusOK) {
-				return false
-			}
-			if !hasStatus(url, "any", "credentials", true, http.StatusOK) {
-				return false
-			}
-			if !hasStatus(url, "user", "secret", true, http.StatusOK) {
-				return false
-			}
-		}
-		return true
-	}
-
-	// helper func which defines how a private resource should behave
-	private := func(urls ...string) bool {
-		for _, url := range urls {
-			if !hasStatus(url, "", "", false, http.StatusUnauthorized) {
-				return false
-			}
-			if !hasStatus(url, "wrong", "credentials", true, http.StatusUnauthorized) {
-				return false
-			}
-			if !hasStatus(url, "user", "secret", true, http.StatusOK) {
-				return false
-			}
-		}
-		return true
-	}
+	public, private := makePolicyHelperFuncs(router)
 
 	// check policies against all nodes
 	for nodeID, node := range nodes {
@@ -243,138 +345,6 @@ func TestNodePolicyFuzz(t *testing.T) {
 				t.Fatalf("nonrestricted node without commissioning date must be private")
 			}
 		}
-	}
-}
-
-func TestGetRequest(t *testing.T) {
-	var mytests = map[string]struct {
-		requiresAuth bool
-		url          string
-	}{
-		"allow": {
-			requiresAuth: false,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now())),
-		},
-		"allowPast1": {
-			requiresAuth: false,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now().AddDate(0, -6, 0))),
-		},
-		"allowPast2": {
-			requiresAuth: false,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned3Y/%s-sample.jpg", timestamp(time.Now().AddDate(-2, 0, 0))),
-		},
-		"allowFuture": {
-			requiresAuth: false,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now().AddDate(0, 6, 0))),
-		},
-		"restrictNode1": {
-			requiresAuth: true,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/restrictedNode1/%s-sample.jpg", timestamp(time.Now())),
-		},
-		"restrictNode2": {
-			requiresAuth: true,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/restrictedNode2/%s-sample.jpg", timestamp(time.Now())),
-		},
-		"restrictTask": {
-			requiresAuth: true,
-			url:          fmt.Sprintf("/api/v1/data/sage/imagesampler-bottom/commissioned1Y/%s-sample.jpg", timestamp(time.Now())),
-		},
-		"restrictPast1": {
-			requiresAuth: true,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned1Y/%s-sample.jpg", timestamp(time.Now().AddDate(-1, 0, -1))),
-		},
-		"restrictPast2": {
-			requiresAuth: true,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/commissioned3Y/%s-sample.jpg", timestamp(time.Now().AddDate(-3, 0, -1))),
-		},
-		"restrictUncommissioned": {
-			requiresAuth: true,
-			url:          fmt.Sprintf("/api/v1/data/sage/safe-task/uncommissioned/%s-sample.jpg", timestamp(time.Now())),
-		},
-	}
-
-	r := getTestRouter()
-
-	for name, test := range mytests {
-		t.Run(name, func(t *testing.T) {
-			// test that unauthenticated request fails
-			if test.requiresAuth {
-				req, err := http.NewRequest("GET", test.url, nil)
-				if err != nil {
-					t.Fatalf("failed: %s", err.Error())
-				}
-
-				rr := httptest.NewRecorder()
-				r.ServeHTTP(rr, req)
-				if rr.Code != http.StatusUnauthorized {
-					t.Fatalf("%q should have returned unauthorized", test.url)
-				}
-			}
-
-			// test that invalid username fails
-			if test.requiresAuth {
-				req, err := http.NewRequest("GET", test.url, nil)
-				if err != nil {
-					t.Fatalf("failed: %s", err.Error())
-				}
-
-				req.SetBasicAuth("userX", "secret")
-				rr := httptest.NewRecorder()
-				r.ServeHTTP(rr, req)
-				if rr.Code != http.StatusUnauthorized {
-					t.Fatalf("%q should have returned unauthorized", test.url)
-				}
-			}
-
-			// test that invalid password fails
-			if test.requiresAuth {
-				req, err := http.NewRequest("GET", test.url, nil)
-				if err != nil {
-					t.Fatalf("failed: %s", err.Error())
-				}
-
-				req.SetBasicAuth("user", "secretY")
-				rr := httptest.NewRecorder()
-				r.ServeHTTP(rr, req)
-				if rr.Code != http.StatusUnauthorized {
-					t.Fatalf("%q should have returned unauthorized", test.url)
-				}
-			}
-
-			req, err := http.NewRequest("GET", test.url, nil)
-			if err != nil {
-				t.Fatalf("failed: %s", err.Error())
-			}
-
-			if test.requiresAuth {
-				req.SetBasicAuth("user", "secret")
-			}
-
-			rr := httptest.NewRecorder()
-			r.ServeHTTP(rr, req)
-			if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
-				t.Fatalf("Access-Control-Allow-Origin != *, instead %q", rr.Header().Get("Access-Control-Allow-Origin"))
-			}
-			if rr.Code != http.StatusOK {
-				t.Fatalf("handler should have return OK instead of %d", rr.Code)
-			}
-
-			b, err := io.ReadAll(rr.Result().Body)
-			if err != nil {
-				t.Fatalf("failed: %s", err.Error())
-			}
-
-			expectBody := []byte("I am fake file content")
-			if !bytes.Equal(b, expectBody) {
-				t.Fatalf("body did not match\ngot: %s\nexpect: %s", b, expectBody)
-			}
-
-			if rr.Result().ContentLength != int64(len(expectBody)) {
-				t.Fatalf("content length did not match\ngot: %d\nexpect: %d", rr.Result().ContentLength, len(expectBody))
-			}
-
-			// TODO add test for Content-Disposition
-		})
 	}
 }
 
