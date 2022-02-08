@@ -127,19 +127,32 @@ func TestHandlerGetOK(t *testing.T) {
 }
 
 func TestHandlerGetContentDisposition(t *testing.T) {
-	content := randomContent()
-	url := "job/task/node/1643842551600000001-sample.jpg"
+	testcases := []struct {
+		URL      string
+		Filename string
+	}{
+		{"job/task/node/1643842551600000000-sample.jpg", "1643842551600000000-sample.jpg"},
+		{"job/task/node/1643842551600000001-audio.mp3", "1643842551600000001-audio.mp3"},
+		{"job/task/node/1643842551600000002-important.txt", "1643842551600000002-important.txt"},
+		{"job/task/node/1643842551600000003-thermal.rgb", "1643842551600000003-thermal.rgb"},
+	}
+
+	files := make(map[string][]byte)
+	for _, tc := range testcases {
+		files[tc.URL] = randomContent()
+	}
 	handler := &StorageHandler{
 		S3API: &mockS3Client{
-			files: map[string][]byte{url: content},
+			files: files,
 		},
 		Authenticator: &mockAuthenticator{true},
 	}
-	resp := getResponse(t, handler, http.MethodGet, url)
-	assertStatusCode(t, resp, http.StatusOK)
-	assertContentLength(t, resp, len(content))
-	assertReadContent(t, resp, content)
-	assertContentDisposition(t, resp, "attachment; filename=1643842551600000001-sample.jpg")
+
+	for _, tc := range testcases {
+		resp := getResponse(t, handler, http.MethodGet, tc.URL)
+		assertStatusCode(t, resp, http.StatusOK)
+		assertContentDisposition(t, resp, fmt.Sprintf("attachment; filename=%s", tc.Filename))
+	}
 }
 
 func TestHandlerCORSHeaders(t *testing.T) {
