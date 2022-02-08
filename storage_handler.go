@@ -27,56 +27,8 @@ type StorageFile struct {
 	JobID     string
 	TaskID    string
 	NodeID    string
-	Timestamp time.Time
 	Filename  string
-}
-
-func parseNanosecondTimestamp(s string) (time.Time, error) {
-	nsec, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return time.Unix(0, nsec), nil
-}
-
-func getRequestFileID(r *http.Request) (*StorageFile, error) {
-	// url format is {jobID}/{taskID}/{nodeID}/{timestampAndFilename}
-	parts := strings.SplitN(r.URL.Path, "/", 4)
-	if len(parts) != 4 {
-		return nil, fmt.Errorf("invalid file path")
-	}
-
-	jobID := parts[0]
-	taskID := parts[1]
-	nodeID := parts[2]
-	// just keep this as the filename and extract timestamp
-	timestampAndFilename := parts[3]
-
-	tf := strings.SplitN(timestampAndFilename, "-", 2)
-	if len(tf) < 2 {
-		return nil, fmt.Errorf("filename has wrong format, dash expected, got %s (sf.JobID: %s)", timestampAndFilename, jobID)
-	}
-
-	timestamp, err := parseNanosecondTimestamp(tf[0])
-	if err != nil {
-		return nil, fmt.Errorf("error parsing timestamp: %s", err.Error())
-	}
-
-	return &StorageFile{
-		JobID:     jobID,
-		TaskID:    taskID,
-		NodeID:    nodeID,
-		Timestamp: timestamp,
-		Filename:  tf[1],
-	}, nil
-}
-
-func filenameForFileID(f *StorageFile) string {
-	return fmt.Sprintf("%d-%s", f.Timestamp.UnixNano(), f.Filename)
-}
-
-func (h *StorageHandler) s3KeyForFileID(sf *StorageFile) string {
-	return path.Join(h.S3RootFolder, sf.JobID, sf.TaskID, sf.NodeID, filenameForFileID(sf))
+	Timestamp time.Time
 }
 
 func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +55,7 @@ func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 	sf, err := getRequestFileID(r)
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, err.Error())
+		respondJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -134,13 +86,17 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if hoo.ContentLength != nil {
+		w.Header().Add("Content-Length", fmt.Sprintf("%d", *hoo.ContentLength))
+	}
+
 	respondJSON(w, http.StatusOK, &hoo)
 }
 
 func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 	sf, err := getRequestFileID(r)
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, err.Error())
+		respondJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -166,7 +122,7 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 	}
 	defer out.Body.Close()
 
-	w.Header().Set("Content-Disposition", "attachment; filename="+filenameForFileID(sf))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", sf.Filename))
 
 	if out.ContentLength != nil {
 		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
@@ -180,4 +136,50 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 		respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
 		return
 	}
+}
+
+func parseNanosecondTimestamp(s string) (time.Time, error) {
+	nsec, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(0, nsec), nil
+}
+
+func extractTimestampFromFilename(s string) (time.Time, error) {
+	parts := strings.SplitN(s, "-", 2)
+	if len(parts) < 2 {
+		return time.Time{}, fmt.Errorf("failed to extract timestamp from filename string %q", s)
+	}
+	return parseNanosecondTimestamp(parts[0])
+}
+
+func getRequestFileID(r *http.Request) (*StorageFile, error) {
+	// url format is {jobID}/{taskID}/{nodeID}/{timestampAndFilename}
+	parts := strings.SplitN(r.URL.Path, "/", 4)
+	if len(parts) != 4 {
+		return nil, fmt.Errorf("invalid path format")
+	}
+
+	jobID := parts[0]
+	taskID := parts[1]
+	nodeID := parts[2]
+	filename := parts[3]
+
+	timestamp, err := extractTimestampFromFilename(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	return &StorageFile{
+		JobID:     jobID,
+		TaskID:    taskID,
+		NodeID:    nodeID,
+		Filename:  filename,
+		Timestamp: timestamp,
+	}, nil
+}
+
+func (h *StorageHandler) s3KeyForFileID(f *StorageFile) string {
+	return path.Join(h.S3RootFolder, f.JobID, f.TaskID, f.NodeID, f.Filename)
 }

@@ -83,7 +83,7 @@ func TestHandlerValidURL(t *testing.T) {
 				if tc.Valid {
 					assertStatusCode(t, resp, http.StatusOK)
 				} else {
-					assertStatusCode(t, resp, http.StatusInternalServerError)
+					assertStatusCode(t, resp, http.StatusBadRequest)
 				}
 			}
 		})
