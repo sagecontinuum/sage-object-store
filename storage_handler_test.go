@@ -15,6 +15,122 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
+func TestHandlerHeadUnauthorized(t *testing.T) {
+	handler := &StorageHandler{
+		S3API:         &mockS3Client{},
+		Authenticator: &mockAuthenticator{false},
+	}
+	resp := getResponse(t, handler, http.MethodHead, randomURL())
+	assertStatusCode(t, resp, http.StatusUnauthorized)
+}
+
+func TestHandlerHeadNotFound(t *testing.T) {
+	handler := &StorageHandler{
+		S3API:         &mockS3Client{},
+		Authenticator: &mockAuthenticator{true},
+	}
+	resp := getResponse(t, handler, http.MethodHead, randomURL())
+	assertStatusCode(t, resp, http.StatusNotFound)
+}
+
+func TestHandlerHeadOK(t *testing.T) {
+	content := randomContent(273)
+	url := randomURL()
+	handler := &StorageHandler{
+		S3API: &mockS3Client{
+			files: map[string][]byte{url: content},
+		},
+		Authenticator: &mockAuthenticator{true},
+	}
+	resp := getResponse(t, handler, http.MethodHead, url)
+	assertStatusCode(t, resp, http.StatusOK)
+	assertContentLength(t, resp, len(content))
+}
+
+func TestHandlerGetBadURL(t *testing.T) {
+	handler := &StorageHandler{
+		S3API:         &mockS3Client{},
+		Authenticator: &mockAuthenticator{true},
+	}
+
+	testcases := map[string]string{
+		"TooFewSlashes":      "task/node/1643842551688168762-sample.jpg",
+		"TooManySlashes":     "too/many/node/1643842551688168762-sample.jpg",
+		"BadTimestampLength": "sage/task/node/16438425516881687620-sample.jpg",
+		"BadTimestampChars":  "sage/task/node/164384X551688168762-sample.jpg",
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			resp := getResponse(t, handler, http.MethodGet, tc)
+			assertStatusCode(t, resp, http.StatusInternalServerError)
+		})
+	}
+}
+
+func TestHandlerGetUnauthorized(t *testing.T) {
+	handler := &StorageHandler{
+		S3API:         &mockS3Client{},
+		Authenticator: &mockAuthenticator{false},
+	}
+	resp := getResponse(t, handler, http.MethodGet, randomURL())
+	assertStatusCode(t, resp, http.StatusUnauthorized)
+	assertReadContent(t, resp, []byte(`{
+  "error": "not authorized"
+}
+`))
+}
+
+func TestHandlerGetNotFound(t *testing.T) {
+	handler := &StorageHandler{
+		S3API:         &mockS3Client{},
+		Authenticator: &mockAuthenticator{true},
+	}
+	resp := getResponse(t, handler, http.MethodGet, randomURL())
+	assertStatusCode(t, resp, http.StatusNotFound)
+}
+
+func TestHandlerGetOK(t *testing.T) {
+	content := randomContent(273)
+	url := randomURL()
+	handler := &StorageHandler{
+		S3API: &mockS3Client{
+			files: map[string][]byte{url: content},
+		},
+		Authenticator: &mockAuthenticator{true},
+	}
+	resp := getResponse(t, handler, http.MethodGet, url)
+	assertStatusCode(t, resp, http.StatusOK)
+	assertContentLength(t, resp, len(content))
+	assertReadContent(t, resp, content)
+}
+
+func TestHandlerCORSHeaders(t *testing.T) {
+	handler := &StorageHandler{
+		S3API:         &mockS3Client{},
+		Authenticator: &mockAuthenticator{true},
+	}
+
+	methods := []string{http.MethodGet, http.MethodHead, http.MethodOptions}
+
+	for _, method := range methods {
+		resp := getResponse(t, handler, method, randomURL())
+
+		allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
+		if allowOrigin != "*" {
+			t.Fatalf("Access-Control-Allow-Origin must be *. got %q", allowOrigin)
+		}
+
+		// TODO(sean) check other expected headers
+		// methods := resp.Header.Values("Access-Control-Allow-Methods")
+		// sort.Strings(methods)
+		// if strings.Join(methods, ",") != "GET,HEAD,OPTIONS" {
+		// 	t.Fatalf("allow methods must be GET, HEAD and OPTIONS")
+		// }
+	}
+}
+
+// mockS3Client provides a fixed set of content using an in-memory map of URLs to data
 type mockS3Client struct {
 	files map[string][]byte
 	s3iface.S3API
@@ -52,6 +168,7 @@ func (m *mockS3Client) GetObjectWithContext(ctx context.Context, obj *s3.GetObje
 	}, nil
 }
 
+// mockAuthenticator provides a simple "allow all" or "reject all" policy for testing
 type mockAuthenticator struct {
 	authorized bool
 }
@@ -60,10 +177,10 @@ func (a *mockAuthenticator) Authorized(f *StorageFile, username, password string
 	return a.authorized
 }
 
-func getResponse(h http.Handler, method string, url string) *http.Response {
+func getResponse(t *testing.T, h http.Handler, method string, url string) *http.Response {
 	r, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		panic(err)
+		t.Fatalf("error when creating request: %s", err.Error())
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
@@ -103,113 +220,4 @@ func randomContent(n int) []byte {
 		b[i] = byte(rand.Intn(256))
 	}
 	return b
-}
-
-func TestHandlerHeadUnauthorized(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{false},
-	}
-	resp := getResponse(handler, http.MethodHead, randomURL())
-	assertStatusCode(t, resp, http.StatusUnauthorized)
-}
-
-func TestHandlerHeadNotFound(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{true},
-	}
-	resp := getResponse(handler, http.MethodHead, randomURL())
-	assertStatusCode(t, resp, http.StatusNotFound)
-}
-
-func TestHandlerHeadOK(t *testing.T) {
-	content := randomContent(273)
-	url := randomURL()
-	handler := &StorageHandler{
-		S3API: &mockS3Client{
-			files: map[string][]byte{
-				url: content,
-			},
-		},
-		Authenticator: &mockAuthenticator{true},
-	}
-	resp := getResponse(handler, http.MethodHead, url)
-	assertStatusCode(t, resp, http.StatusOK)
-	assertContentLength(t, resp, len(content))
-}
-
-func TestHandlerGetBadURL(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{true},
-	}
-
-	testcases := map[string]string{
-		"TooFewSlashes":      "task/node/1643842551688168762-sample.jpg",
-		"TooManySlashes":     "too/many/node/1643842551688168762-sample.jpg",
-		"BadTimestampLength": "sage/task/node/16438425516881687620-sample.jpg",
-		"BadTimestampChars":  "sage/task/node/164384X551688168762-sample.jpg",
-	}
-
-	for name, tc := range testcases {
-		t.Run(name, func(t *testing.T) {
-			resp := getResponse(handler, http.MethodGet, tc)
-			assertStatusCode(t, resp, http.StatusInternalServerError)
-		})
-	}
-}
-
-func TestHandlerGetUnauthorized(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{false},
-	}
-	resp := getResponse(handler, http.MethodGet, randomURL())
-	assertStatusCode(t, resp, http.StatusUnauthorized)
-	assertReadContent(t, resp, []byte(`{
-  "error": "not authorized"
-}
-`))
-}
-
-func TestHandlerGetNotFound(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{true},
-	}
-	resp := getResponse(handler, http.MethodGet, randomURL())
-	assertStatusCode(t, resp, http.StatusNotFound)
-}
-
-func TestHandlerGetOK(t *testing.T) {
-	content := randomContent(273)
-	url := randomURL()
-
-	handler := &StorageHandler{
-		S3API: &mockS3Client{
-			files: map[string][]byte{
-				url: content,
-			},
-		},
-		Authenticator: &mockAuthenticator{true},
-	}
-
-	resp := getResponse(handler, http.MethodGet, url)
-	assertStatusCode(t, resp, http.StatusOK)
-
-	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
-	if allowOrigin != "*" {
-		t.Fatalf("Access-Control-Allow-Origin must be *. got %q", allowOrigin)
-	}
-
-	// TODO(sean) check other expected headers
-	// methods := resp.Header.Values("Access-Control-Allow-Methods")
-	// sort.Strings(methods)
-	// if strings.Join(methods, ",") != "GET,HEAD,OPTIONS" {
-	// 	t.Fatalf("allow methods must be GET, HEAD and OPTIONS")
-	// }
-
-	assertContentLength(t, resp, len(content))
-	assertReadContent(t, resp, content)
 }

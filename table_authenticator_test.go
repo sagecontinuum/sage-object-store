@@ -6,34 +6,6 @@ import (
 	"time"
 )
 
-// TODO(sean) in principle, the auth subsystem is totally idependent from the rest of
-// this service and should be pluggable. we should see if we can isolate the dependence
-// on the StorageFile object type
-
-func assertPublic(t *testing.T, a Authenticator, f *StorageFile) {
-	if a.Authorized(f, "", "", false) == false {
-		t.Fatalf("expected public: should be allowed with no auth.\n%+v", f)
-	}
-	if a.Authorized(f, "any", "credentials", true) == false {
-		t.Fatalf("expected public: should be allowed with any credentials.\n%+v", f)
-	}
-	if a.Authorized(f, "user", "secret", true) == false {
-		t.Fatalf("expected public: should be allowed with proper credentials.\n%+v", f)
-	}
-}
-
-func assertPrivate(t *testing.T, a Authenticator, f *StorageFile) {
-	if a.Authorized(f, "", "", false) == true {
-		t.Fatalf("expected private: should not be allowed with no auth.\n%+v", f)
-	}
-	if a.Authorized(f, "any", "credentials", true) == true {
-		t.Fatalf("expected private: should not be allowed with incorrect credentials.\n%+v", f)
-	}
-	if a.Authorized(f, "user", "secret", true) == false {
-		t.Fatalf("expected private: should be allowed with proper credentials.\n%+v", f)
-	}
-}
-
 func TestAuthorized(t *testing.T) {
 	makeCommissionDate := func(year, month, day int) *time.Time {
 		t := time.Now().AddDate(year, month, day)
@@ -249,5 +221,29 @@ func TestAuthorizedFuzz(t *testing.T) {
 				})
 			})
 		}
+	}
+}
+
+func assertPublic(t *testing.T, a Authenticator, f *StorageFile) {
+	if a.Authorized(f, "", "", false) == false {
+		t.Fatalf("expected public: should be allowed with no auth.\n%+v", f)
+	}
+	if a.Authorized(f, "any", "credentials", true) == false {
+		t.Fatalf("expected public: should be allowed with any credentials.\n%+v", f)
+	}
+	if a.Authorized(f, "user", "secret", true) == false {
+		t.Fatalf("expected public: should be allowed with proper credentials.\n%+v", f)
+	}
+}
+
+func assertPrivate(t *testing.T, a Authenticator, f *StorageFile) {
+	if a.Authorized(f, "", "", false) == true {
+		t.Fatalf("expected private: should not be allowed with no auth.\n%+v", f)
+	}
+	if a.Authorized(f, "any", "credentials", true) == true {
+		t.Fatalf("expected private: should not be allowed with incorrect credentials.\n%+v", f)
+	}
+	if a.Authorized(f, "user", "secret", true) == false {
+		t.Fatalf("expected private: should be allowed with proper credentials.\n%+v", f)
 	}
 }
