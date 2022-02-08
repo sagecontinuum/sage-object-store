@@ -55,7 +55,7 @@ func TestHandlerGetBadURL(t *testing.T) {
 
 	testcases := map[string]string{
 		"TooFewSlashes":      "task/node/1643842551688168762-sample.jpg",
-		"TooManySlashes":     "too/many/node/1643842551688168762-sample.jpg",
+		"TooManySlashes":     "extra/job/task/node/1643842551688168762-sample.jpg",
 		"BadTimestampLength": "sage/task/node/16438425516881687620-sample.jpg",
 		"BadTimestampChars":  "sage/task/node/164384X551688168762-sample.jpg",
 	}
