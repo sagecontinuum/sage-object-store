@@ -52,8 +52,8 @@ func TestHandlerValidURL(t *testing.T) {
 	handler := &StorageHandler{
 		S3API: &mockS3Client{
 			files: map[string][]byte{
-				"job/task/1643842551600000001-sample.jpg": []byte("data1"),
-				"job/task/1643842551600000002-sample.jpg": []byte("data2"),
+				"job/task/node/1643842551600000001-sample.jpg": []byte("data1"),
+				"job/task/node/1643842551600000002-sample.jpg": []byte("data2"),
 			},
 		},
 		Authenticator: &mockAuthenticator{true},
@@ -63,8 +63,8 @@ func TestHandlerValidURL(t *testing.T) {
 		URL   string
 		Valid bool
 	}{
-		"Valid1":             {"job/task/1643842551600000001-sample.jpg", true},
-		"Valid2":             {"job/task/1643842551600000002-sample.jpg", true},
+		"Valid1":             {"job/task/node/1643842551600000001-sample.jpg", true},
+		"Valid2":             {"job/task/node/1643842551600000002-sample.jpg", true},
 		"TooFewSlashes":      {"task/node/1643842551688168762-sample.jpg", false},
 		"TooManySlashes":     {"extra/job/task/node/1643842551688168762-sample.jpg", false},
 		"EmptyJob":           {"/task/node/164384X551688168762-sample.jpg", false},
@@ -124,6 +124,22 @@ func TestHandlerGetOK(t *testing.T) {
 	assertStatusCode(t, resp, http.StatusOK)
 	assertContentLength(t, resp, len(content))
 	assertReadContent(t, resp, content)
+}
+
+func TestHandlerGetContentDisposition(t *testing.T) {
+	content := randomContent()
+	url := "job/task/node/1643842551600000001-sample.jpg"
+	handler := &StorageHandler{
+		S3API: &mockS3Client{
+			files: map[string][]byte{url: content},
+		},
+		Authenticator: &mockAuthenticator{true},
+	}
+	resp := getResponse(t, handler, http.MethodGet, url)
+	assertStatusCode(t, resp, http.StatusOK)
+	assertContentLength(t, resp, len(content))
+	assertReadContent(t, resp, content)
+	assertContentDisposition(t, resp, "attachment; filename=1643842551600000001-sample.jpg")
 }
 
 func TestHandlerCORSHeaders(t *testing.T) {
@@ -217,6 +233,13 @@ func assertStatusCode(t *testing.T, resp *http.Response, status int) {
 func assertContentLength(t *testing.T, resp *http.Response, length int) {
 	if resp.ContentLength != int64(length) {
 		t.Errorf("incorrect content length. got: %d want: %d", resp.StatusCode, length)
+	}
+}
+
+func assertContentDisposition(t *testing.T, resp *http.Response, expect string) {
+	s := resp.Header.Get("Content-Disposition")
+	if s != expect {
+		t.Fatalf("incorrect content disposition. got: %s. want: %s", s, expect)
 	}
 }
 
