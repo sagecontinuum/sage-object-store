@@ -144,7 +144,7 @@ func TestAuthorized(t *testing.T) {
 }
 
 func TestAuthorizedFuzz(t *testing.T) {
-	nodes := generateRandomNodeList(1000)
+	nodes := randomNodeList(1000)
 
 	auth := &TableAuthenticator{}
 	auth.UpdateConfig(&TableAuthenticatorConfig{
@@ -222,7 +222,7 @@ func randomNodeID() string {
 	return string(s)
 }
 
-func generateRandomNodeList(n int) map[string]*TableAuthenticatorNode {
+func randomNodeList(n int) map[string]*TableAuthenticatorNode {
 	nodes := make(map[string]*TableAuthenticatorNode)
 	for i := 0; i < n; i++ {
 		// generate a random commission date in the past
