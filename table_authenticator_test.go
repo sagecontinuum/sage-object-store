@@ -12,9 +12,9 @@ func TestAuthorized(t *testing.T) {
 		return &t
 	}
 
-	authenticator := &TableAuthenticator{}
+	auth := &TableAuthenticator{}
 
-	authenticator.UpdateConfig(&TableAuthenticatorConfig{
+	auth.UpdateConfig(&TableAuthenticatorConfig{
 		Username: "user",
 		Password: "secret",
 		Nodes: map[string]*TableAuthenticatorNode{
@@ -135,89 +135,54 @@ func TestAuthorized(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			if tc.Public {
-				assertPublic(t, authenticator, tc.File)
+				assertPublic(t, auth, tc.File)
 			} else {
-				assertPrivate(t, authenticator, tc.File)
+				assertPrivate(t, auth, tc.File)
 			}
 		})
 	}
 }
 
-// func timestamp(t time.Time) string {
-// 	return fmt.Sprintf("%d", t.UnixNano())
-// }
-
-func randomNodeID() string {
-	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-	s := make([]rune, 16)
-	for i := range s {
-		s[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(s)
-}
-
-func generateRandomNodeList(n int) map[string]*TableAuthenticatorNode {
-	nodes := make(map[string]*TableAuthenticatorNode)
-	for i := 0; i < n; i++ {
-		// generate a random commission date in the past
-		cdate := time.Now().AddDate(0, 0, -rand.Intn(1000))
-		nodes[randomNodeID()] = &TableAuthenticatorNode{
-			Restricted:     rand.Intn(2) == 0,
-			CommissionDate: &cdate,
-		}
-	}
-	return nodes
-}
-
 func TestAuthorizedFuzz(t *testing.T) {
 	nodes := generateRandomNodeList(1000)
 
-	authenticator := &TableAuthenticator{}
-	authenticator.UpdateConfig(&TableAuthenticatorConfig{
+	auth := &TableAuthenticator{}
+	auth.UpdateConfig(&TableAuthenticatorConfig{
 		Username:                  "user",
 		Password:                  "secret",
 		Nodes:                     nodes,
 		RestrictedTasksSubstrings: []string{},
 	})
 
-	// check policies against all nodes
 	for nodeID, node := range nodes {
-		switch {
-		case node.Restricted:
-			t.Run("Restricted", func(t *testing.T) {
-				assertPrivate(t, authenticator, &StorageFile{
+		if node.CommissionDate == nil || node.Restricted {
+			t.Run("UncommissionedOrRestricted", func(t *testing.T) {
+				assertPrivate(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: time.Now(),
 				})
-				assertPrivate(t, authenticator, &StorageFile{
+				assertPrivate(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: time.Now().AddDate(0, 0, -2000),
 				})
-				assertPrivate(t, authenticator, &StorageFile{
+				assertPrivate(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: time.Now().AddDate(1, 0, 0),
 				})
 			})
-		case !node.Restricted && node.CommissionDate != nil:
-			t.Run("UnrestrictedAndCommissioned", func(t *testing.T) {
-				assertPublic(t, authenticator, &StorageFile{
+		} else {
+			t.Run("CommissionedAndUnrestricted", func(t *testing.T) {
+				assertPublic(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: *node.CommissionDate,
 				})
-				assertPublic(t, authenticator, &StorageFile{
+				assertPublic(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: node.CommissionDate.AddDate(1, 0, 0),
 				})
-				assertPrivate(t, authenticator, &StorageFile{
+				assertPrivate(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: node.CommissionDate.AddDate(0, 0, -1),
-				})
-			})
-		case !node.Restricted && node.CommissionDate == nil:
-			t.Run("UnrestrictedAndNotCommissioned", func(t *testing.T) {
-				assertPrivate(t, authenticator, &StorageFile{
-					NodeID:    nodeID,
-					Timestamp: *node.CommissionDate,
 				})
 			})
 		}
@@ -246,4 +211,26 @@ func assertPrivate(t *testing.T, a Authenticator, f *StorageFile) {
 	if a.Authorized(f, "user", "secret", true) == false {
 		t.Fatalf("expected private: should be allowed with proper credentials.\n%+v", f)
 	}
+}
+
+func randomNodeID() string {
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	s := make([]rune, 16)
+	for i := range s {
+		s[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(s)
+}
+
+func generateRandomNodeList(n int) map[string]*TableAuthenticatorNode {
+	nodes := make(map[string]*TableAuthenticatorNode)
+	for i := 0; i < n; i++ {
+		// generate a random commission date in the past
+		cdate := time.Now().AddDate(0, 0, -rand.Intn(1000))
+		nodes[randomNodeID()] = &TableAuthenticatorNode{
+			Restricted:     rand.Intn(2) == 0,
+			CommissionDate: &cdate,
+		}
+	}
+	return nodes
 }
