@@ -7,11 +7,11 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/gorilla/mux"
 )
 
 type StorageHandler struct {
@@ -25,29 +25,52 @@ type StorageFile struct {
 	JobID     string
 	TaskID    string
 	NodeID    string
-	Timestamp string
+	Timestamp time.Time
 	Filename  string
 }
 
-func getRequestFileID(r *http.Request) (*StorageFile, error) {
-	vars := mux.Vars(r)
+func parseNanosecondTimestamp(s string) (time.Time, error) {
+	nsec, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(0, nsec), nil
+}
 
-	tfarray := strings.SplitN(vars["timestampAndFilename"], "-", 2)
-	if len(tfarray) < 2 {
-		return nil, fmt.Errorf("filename has wrong format, dash expected, got %s (sf.JobID: %s)", vars["timestampAndFilename"], vars["jobID"])
+func getRequestFileID(r *http.Request) (*StorageFile, error) {
+	// url format is {jobID}/{taskID}/{nodeID}/{timestampAndFilename}
+	parts := strings.SplitN(r.URL.Path, "/", 4)
+	if len(parts) != 4 {
+		return nil, fmt.Errorf("invalid file path")
+	}
+
+	jobID := parts[0]
+	taskID := parts[1]
+	nodeID := parts[2]
+	// just keep this as the filename and extract timestamp
+	timestampAndFilename := parts[3]
+
+	tf := strings.SplitN(timestampAndFilename, "-", 2)
+	if len(tf) < 2 {
+		return nil, fmt.Errorf("filename has wrong format, dash expected, got %s (sf.JobID: %s)", timestampAndFilename, jobID)
+	}
+
+	timestamp, err := parseNanosecondTimestamp(tf[0])
+	if err != nil {
+		return nil, fmt.Errorf("error parsing timestamp: %s", err.Error())
 	}
 
 	return &StorageFile{
-		JobID:     vars["jobID"],
-		TaskID:    vars["taskID"],
-		NodeID:    vars["nodeID"],
-		Timestamp: tfarray[0],
-		Filename:  tfarray[1],
+		JobID:     jobID,
+		TaskID:    taskID,
+		NodeID:    nodeID,
+		Timestamp: timestamp,
+		Filename:  tf[1],
 	}, nil
 }
 
-func filenameForFileID(sf *StorageFile) string {
-	return sf.Timestamp + "-" + sf.Filename
+func filenameForFileID(f *StorageFile) string {
+	return fmt.Sprintf("%d-%s", f.Timestamp.UnixNano(), f.Filename)
 }
 
 func (h *StorageHandler) s3KeyForFileID(sf *StorageFile) string {

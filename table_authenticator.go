@@ -1,7 +1,13 @@
 package main
 
 import (
-	"strconv"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,114 +40,102 @@ func (a *TableAuthenticator) UpdateConfig(config *TableAuthenticatorConfig) {
 }
 
 // Authorized returns whether or not the given user is authorized to access the given file.
-func (a *TableAuthenticator) Authorized(sf *StorageFile, username, password string, hasAuth bool) bool {
+func (a *TableAuthenticator) Authorized(f *StorageFile, username, password string, hasAuth bool) bool {
 	// TODO(sean) this implementation only uses a single credential for everything,
 	// as can be seen below. later, we probably want to update this
-	return a.authenticated(username, password, hasAuth) || a.allowed(sf)
+	return a.authenticated(username, password, hasAuth) || a.allowed(f)
 }
 
 func (a *TableAuthenticator) authenticated(username, password string, hasAuth bool) bool {
 	return hasAuth && username == a.config.Username && password == a.config.Password
 }
 
-func (m *TableAuthenticator) allowed(sf *StorageFile) bool {
+func (m *TableAuthenticator) allowed(f *StorageFile) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// we assume private by default, so no config means everything is private
 	if m.config == nil {
 		return false
 	}
 
-	node := m.config.Nodes[sf.NodeID]
-	if node == nil {
+	node, ok := m.config.Nodes[f.NodeID]
+	if !ok {
 		return false
 	}
 
+	// check forced restriction
 	if node.Restricted {
 		return false
 	}
-
-	// parse file timestamp
-	timeFull, err := strconv.ParseInt(sf.Timestamp, 10, 64)
-	if err != nil {
+	// check commission date
+	if node.CommissionDate == nil || f.Timestamp.Before(*node.CommissionDate) {
 		return false
 	}
-
-	timestamp := time.Unix(timeFull/1e9, timeFull%1e9)
-
-	if node.CommissionDate == nil || timestamp.Before(*node.CommissionDate) {
-		return false
-	}
-
 	// check task for restricted substrings
 	for _, s := range m.config.RestrictedTasksSubstrings {
-		if strings.Contains(sf.TaskID, s) {
+		if strings.Contains(f.TaskID, s) {
 			return false
 		}
 	}
-
 	return true
 }
 
-// type ProductionNode struct {
-// 	NodeID         string `json:"node_id"`
-// 	CommissionDate string `json:"commission_date"`
-// }
+var nodeIDRE = regexp.MustCompile("[a-f0-9]{16}")
 
-// func GetTableAuthenticatorConfigFromURL(URL string) (*TableAuthenticatorConfig, error) {
-// 	log.Printf("updating access manager data using %q", URL)
+func GetNodeTableFromURL(URL string) (map[string]*TableAuthenticatorNode, error) {
+	resp, err := http.Get(URL)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("(getcommission_dates) Got resp.StatusCode: %d", resp.StatusCode)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("(getcommission_dates) Could not retrive url: %s", err.Error())
+	}
+	defer resp.Body.Close()
+	return readNodeTable(resp.Body)
+}
 
-// 	resp, err := http.Get(URL)
-// 	if resp.StatusCode != 200 {
-// 		return nil, fmt.Errorf("(getcommission_dates) Got resp.StatusCode: %d", resp.StatusCode)
-// 	}
-// 	if err != nil {
-// 		return nil, fmt.Errorf("(getcommission_dates) Could not retrive url: %s", err.Error())
-// 	}
+func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
+	var items []struct {
+		NodeID         string `json:"node_id"`
+		Restricted     string `json:"restricted"`
+		CommissionDate string `json:"commission_date"`
+		RetireDate     string `json:"retired_date"` // notice it's retired, not retire
+	}
 
-// 	data := &TableAuthenticatorConfig{}
+	if err := json.NewDecoder(r).Decode(&items); err != nil {
+		return nil, fmt.Errorf("error when reading node table: %s", err)
+	}
 
-// 	var nodes []ProductionNode
+	nodes := make(map[string]*TableAuthenticatorNode)
 
-// 	err = json.NewDecoder(resp.Body).Decode(&nodes)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("(getcommission_dates) Could not parse json: %s", err.Error())
-// 	}
+	// hack to get this from environment
+	restricted := make(map[string]bool)
+	for _, s := range strings.Split(os.Getenv("policyRestrictedNodes"), ",") {
+		restricted[strings.ToLower(s)] = true
+	}
 
-// 	commissionDates := map[string]time.Time{}
+	for _, item := range items {
+		item.NodeID = strings.ToLower(item.NodeID)
 
-// 	for _, node := range m.nodes {
-// 		if node.NodeID == "" {
-// 			continue
-// 		}
+		if !nodeIDRE.MatchString(item.NodeID) {
+			continue
+		}
 
-// 		log.Println(node.NodeID)
-// 		if len(node.CommissionDate) == 0 {
-// 			continue
-// 		}
+		node := &TableAuthenticatorNode{
+			Restricted: restricted[item.NodeID],
+		}
 
-// 		if len(node.CommissionDate) != 10 {
-// 			log.Printf("CommissionDate format wrong: %s\n", node.CommissionDate)
-// 			continue
-// 		}
+		if item.CommissionDate != "" {
+			if t, err := time.Parse("2006-01-02", item.CommissionDate); err == nil {
+				node.CommissionDate = &t
+			} else {
+				log.Printf("commission date for %s is invalid", item.NodeID)
+			}
+		}
 
-// 		var year, month, day int
+		nodes[item.NodeID] = node
+	}
 
-// 		year, err = strconv.Atoi(node.CommissionDate[0:4])
-// 		if err != nil {
-// 			return err
-// 		}
-// 		month, err = strconv.Atoi(node.CommissionDate[5:7])
-// 		if err != nil {
-// 			return err
-// 		}
-// 		day, err = strconv.Atoi(node.CommissionDate[8:10])
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		log.Printf("extracted: %d %d %d\n", year, month, day)
-
-// 		commissionDates[strings.ToLower(node.NodeID)] = time.Date(year, time.Month(month), day, 1, 1, 1, 1, time.UTC)
-// 	}
-// }
+	return nodes, nil
+}

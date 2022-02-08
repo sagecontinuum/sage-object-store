@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -46,8 +47,7 @@ func createRouter(handler *StorageHandler) *mux.Router {
 	})
 
 	// TODO move vars in URL in StorageHandler
-	// GET /data/
-	router.Handle("/api/v1/data/{jobID}/{taskID}/{nodeID}/{timestampAndFilename}", handler).Methods(http.MethodGet, http.MethodHead, http.MethodOptions)
+	router.Handle("/api/v1/data/", http.StripPrefix("/api/v1/data/", handler))
 
 	// add prometheus metrics endpoint
 	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
@@ -68,6 +68,11 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on")
 	flag.Parse()
 
+	nodes, err := GetNodeTableFromURL("https://api.sagecontinuum.org/production")
+	if err != nil {
+		log.Fatalf("failed to load nodes table: %s", err)
+	}
+
 	s3Endpoint := mustGetenv("s3Endpoint")
 	s3accessKeyID := mustGetenv("s3accessKeyID")
 	s3secretAccessKey := mustGetenv("s3secretAccessKey")
@@ -85,10 +90,12 @@ func main() {
 	TableAuthenticator := &TableAuthenticator{}
 
 	TableAuthenticator.UpdateConfig(&TableAuthenticatorConfig{
-		Username: os.Getenv("policyRestrictedUsername"),
-		Password: os.Getenv("policyRestrictedPassword"),
+		Username:                  os.Getenv("policyRestrictedUsername"),
+		Password:                  os.Getenv("policyRestrictedPassword"),
+		Nodes:                     nodes,
+		RestrictedTasksSubstrings: strings.Split(os.Getenv("policyRestrictedTaskSubstrings"), ","),
 	})
-	// TODO(sean) dispatch sync with production sheet
+	// TODO(sean) sync with production api periodically
 
 	handler := &StorageHandler{
 		S3API:         s3.New(session),
