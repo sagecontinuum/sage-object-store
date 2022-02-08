@@ -40,6 +40,7 @@ func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodOptions:
+		// what response goes here?
 	case http.MethodHead:
 		h.handleHEAD(w, r)
 	case http.MethodGet:
@@ -158,7 +159,7 @@ func parseNanosecondTimestamp(s string) (time.Time, error) {
 func extractTimestampFromFilename(s string) (time.Time, error) {
 	parts := strings.SplitN(s, "-", 2)
 	if len(parts) < 2 {
-		return time.Time{}, fmt.Errorf("failed to extract timestamp from filename string %q", s)
+		return time.Time{}, fmt.Errorf("missing dash separator in filename")
 	}
 	return parseNanosecondTimestamp(parts[0])
 }
@@ -167,7 +168,7 @@ func getRequestFileID(r *http.Request) (*StorageFile, error) {
 	// url format is {jobID}/{taskID}/{nodeID}/{timestampAndFilename}
 	parts := strings.SplitN(r.URL.Path, "/", 4)
 	if len(parts) != 4 {
-		return nil, fmt.Errorf("invalid path format")
+		return nil, fmt.Errorf("invalid path: %q", r.URL.Path)
 	}
 
 	jobID := parts[0]
@@ -175,9 +176,20 @@ func getRequestFileID(r *http.Request) (*StorageFile, error) {
 	nodeID := parts[2]
 	filename := parts[3]
 
+	switch {
+	case jobID == "":
+		return nil, fmt.Errorf("job must be nonempty")
+	case taskID == "":
+		return nil, fmt.Errorf("task must be nonempty")
+	case nodeID == "":
+		return nil, fmt.Errorf("node must be nonempty")
+	case filename == "":
+		return nil, fmt.Errorf("filename must be nonempty")
+	}
+
 	timestamp, err := extractTimestampFromFilename(filename)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to extract timestamp from filename: %s", err.Error())
 	}
 
 	return &StorageFile{
