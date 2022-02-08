@@ -142,9 +142,7 @@ func TestHandlerGetContentDisposition(t *testing.T) {
 		files[tc.URL] = randomContent()
 	}
 	handler := &StorageHandler{
-		S3API: &mockS3Client{
-			files: files,
-		},
+		S3API:         &mockS3Client{files: files},
 		Authenticator: &mockAuthenticator{true},
 	}
 
