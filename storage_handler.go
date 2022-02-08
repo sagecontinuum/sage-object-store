@@ -68,29 +68,15 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		Key:    &s3key,
 	}
 
-	hoo, err := h.S3API.HeadObjectWithContext(r.Context(), &headObjectInput)
+	resp, err := h.S3API.HeadObjectWithContext(r.Context(), &headObjectInput)
 	if err != nil {
-		switch aerr := err.(type) {
-		case awserr.Error:
-			switch aerr.Code() {
-			case s3.ErrCodeNoSuchBucket:
-				respondJSONError(w, http.StatusNotFound, "bucket not found: %s", err.Error())
-			case s3.ErrCodeNoSuchKey:
-				respondJSONError(w, http.StatusNotFound, "file not found: %s", err.Error())
-			default:
-				respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", aerr.Code())
-			}
-		default:
-			respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", err.Error())
-		}
+		h.handleS3Error(w, r, err)
 		return
 	}
-
-	if hoo.ContentLength != nil {
-		w.Header().Add("Content-Length", fmt.Sprintf("%d", *hoo.ContentLength))
+	if resp.ContentLength != nil {
+		w.Header().Add("Content-Length", fmt.Sprintf("%d", *resp.ContentLength))
 	}
-
-	respondJSON(w, http.StatusOK, &hoo)
+	respondJSON(w, http.StatusOK, &resp)
 }
 
 func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
@@ -111,27 +97,42 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 		Key:    &s3key,
 	}
 
-	out, err := h.S3API.GetObjectWithContext(r.Context(), &objectInput)
+	resp, err := h.S3API.GetObjectWithContext(r.Context(), &objectInput)
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Error getting data, GetObject returned: %s", err.Error())
+		h.handleS3Error(w, r, err)
 		return
 	}
-	defer out.Body.Close()
+	defer resp.Body.Close()
 
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", sf.Filename))
 
-	if out.ContentLength != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
+	if resp.ContentLength != nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(*resp.ContentLength, 10))
 	}
 
 	w.WriteHeader(http.StatusOK)
 
-	written, err := io.Copy(w, out.Body)
+	written, err := io.Copy(w, resp.Body)
 	fileDownloadByteSize.Add(float64(written))
 	if err != nil {
 		respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
 		return
 	}
+}
+
+func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, err error) {
+	switch err := err.(type) {
+	case awserr.Error:
+		switch err.Code() {
+		case s3.ErrCodeNoSuchBucket:
+			respondJSONError(w, http.StatusNotFound, "bucket not found: %s", err.Error())
+			return
+		case s3.ErrCodeNoSuchKey:
+			respondJSONError(w, http.StatusNotFound, "file not found: %s", err.Error())
+			return
+		}
+	}
+	respondJSONError(w, http.StatusInternalServerError, "internal server error with S3 request: %s", err.Error())
 }
 
 func (h *StorageHandler) handleAuth(w http.ResponseWriter, r *http.Request, f *StorageFile) error {

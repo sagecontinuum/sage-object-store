@@ -182,12 +182,9 @@ type mockS3Client struct {
 }
 
 func (m *mockS3Client) HeadObjectWithContext(ctx context.Context, obj *s3.HeadObjectInput, options ...request.Option) (*s3.HeadObjectOutput, error) {
-	if obj.Key == nil {
-		return nil, fmt.Errorf("no key provided")
-	}
-	content, ok := m.files[*obj.Key]
-	if !ok {
-		return nil, fmt.Errorf(s3.ErrCodeNoSuchKey)
+	content, err := m.getContent(obj.Key)
+	if err != nil {
+		return nil, err
 	}
 	lang := "klingon"
 	length := int64(len(content))
@@ -198,21 +195,30 @@ func (m *mockS3Client) HeadObjectWithContext(ctx context.Context, obj *s3.HeadOb
 }
 
 func (m *mockS3Client) GetObjectWithContext(ctx context.Context, obj *s3.GetObjectInput, options ...request.Option) (*s3.GetObjectOutput, error) {
-	if obj.Key == nil {
-		return nil, fmt.Errorf("no key provided")
+	content, err := m.getContent(obj.Key)
+	if err != nil {
+		return nil, err
 	}
-
-	content, ok := m.files[*obj.Key]
-	if !ok {
-		// TODO(sean) check actual behavior of s3 endpoint and ensure we have mocked it.
-		return nil, awserr.New(s3.ErrCodeNoSuchKey, "", nil)
-	}
-
 	length := int64(len(content))
 	return &s3.GetObjectOutput{
 		Body:          io.NopCloser(bytes.NewReader(content)),
 		ContentLength: &length,
 	}, nil
+}
+
+func (m *mockS3Client) getContent(key *string) ([]byte, error) {
+	if key == nil {
+		return nil, fmt.Errorf("key is nil")
+	}
+	if m.files == nil {
+		return nil, awserr.New(s3.ErrCodeNoSuchKey, "", nil)
+	}
+	content, ok := m.files[*key]
+	if !ok {
+		// TODO(sean) check actual behavior of s3 endpoint and ensure we have mocked it.
+		return nil, awserr.New(s3.ErrCodeNoSuchKey, "", nil)
+	}
+	return content, nil
 }
 
 // mockAuthenticator provides a simple "allow all" or "reject all" policy for testing
