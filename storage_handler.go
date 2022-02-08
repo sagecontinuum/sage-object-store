@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -19,6 +20,7 @@ type StorageHandler struct {
 	S3Bucket      string
 	S3RootFolder  string
 	Authenticator Authenticator
+	Logger        *log.Logger
 }
 
 type StorageFile struct {
@@ -78,8 +80,9 @@ func (h *StorageHandler) s3KeyForFileID(sf *StorageFile) string {
 }
 
 func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// log request (debug mode only...)
-	// log.Printf("%s %s", r.Method, r.URL)
+	if h.Logger != nil {
+		h.Logger.Printf("storage handler: %s %s", r.Method, r.URL)
+	}
 
 	// storage is always read only, so we allow any origin
 	w.Header().Set("Access-Control-Allow-Origin", "*")

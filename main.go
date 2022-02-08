@@ -46,7 +46,6 @@ func createRouter(handler *StorageHandler) *mux.Router {
 		})
 	})
 
-	// TODO move vars in URL in StorageHandler
 	router.Handle("/api/v1/data/", http.StripPrefix("/api/v1/data/", handler))
 
 	// add prometheus metrics endpoint
@@ -102,6 +101,7 @@ func main() {
 		S3Bucket:      s3bucket,
 		S3RootFolder:  s3rootFolder,
 		Authenticator: TableAuthenticator,
+		Logger:        log.Default(),
 	}
 
 	r := createRouter(handler)
