@@ -36,13 +36,10 @@ func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Printf("storage handler: %s %s", r.Method, r.URL)
 	}
 
-	// storage is always read only, so we allow any origin
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	// dispatch request to specific handler func
 	switch r.Method {
 	case http.MethodOptions:
-		// TODO(sean) implement OPTIONS response
 	case http.MethodHead:
 		h.handleHEAD(w, r)
 	case http.MethodGet:
@@ -59,6 +56,10 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.handleAuth(w, r, sf); err != nil {
+		return
+	}
+
 	s3key := h.s3KeyForFileID(sf)
 
 	headObjectInput := s3.HeadObjectInput{
@@ -68,21 +69,19 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 
 	hoo, err := h.S3API.HeadObjectWithContext(r.Context(), &headObjectInput)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
+		switch aerr := err.(type) {
+		case awserr.Error:
 			switch aerr.Code() {
 			case s3.ErrCodeNoSuchBucket:
-				respondJSONError(w, http.StatusNotFound, "Bucket not found: %s", err.Error())
-				return
-			case s3.ErrCodeNoSuchKey, "NotFound":
-				respondJSONError(w, http.StatusNotFound, "File not found: %s", err.Error())
-				return
+				respondJSONError(w, http.StatusNotFound, "bucket not found: %s", err.Error())
+			case s3.ErrCodeNoSuchKey:
+				respondJSONError(w, http.StatusNotFound, "file not found: %s", err.Error())
+			default:
+				respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", aerr.Code())
 			}
-			aerr.Code()
-			respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", aerr.Code())
-			return
+		default:
+			respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", err.Error())
 		}
-
-		respondJSONError(w, http.StatusInternalServerError, "Error getting data, HeadObjectWithContext returned: %s", err.Error())
 		return
 	}
 
@@ -100,15 +99,11 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s3key := h.s3KeyForFileID(sf)
-
-	username, password, hasAuth := r.BasicAuth()
-
-	if !h.Authenticator.Authorized(sf, username, password, hasAuth) {
-		w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
-		respondJSONError(w, http.StatusUnauthorized, "not authorized")
+	if err := h.handleAuth(w, r, sf); err != nil {
 		return
 	}
+
+	s3key := h.s3KeyForFileID(sf)
 
 	objectInput := s3.GetObjectInput{
 		Bucket: &h.S3Bucket,
@@ -136,6 +131,20 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 		respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
 		return
 	}
+}
+
+func (h *StorageHandler) handleAuth(w http.ResponseWriter, r *http.Request, f *StorageFile) error {
+	username, password, hasAuth := r.BasicAuth()
+	if h.Authenticator.Authorized(f, username, password, hasAuth) {
+		return nil
+	}
+	w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
+	respondJSONError(w, http.StatusUnauthorized, "not authorized")
+	return fmt.Errorf("not authorized")
+}
+
+func (h *StorageHandler) s3KeyForFileID(f *StorageFile) string {
+	return path.Join(h.S3RootFolder, f.JobID, f.TaskID, f.NodeID, f.Filename)
 }
 
 func parseNanosecondTimestamp(s string) (time.Time, error) {
@@ -178,8 +187,4 @@ func getRequestFileID(r *http.Request) (*StorageFile, error) {
 		Filename:  filename,
 		Timestamp: timestamp,
 	}, nil
-}
-
-func (h *StorageHandler) s3KeyForFileID(f *StorageFile) string {
-	return path.Join(h.S3RootFolder, f.JobID, f.TaskID, f.NodeID, f.Filename)
 }

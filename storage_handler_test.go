@@ -11,30 +11,45 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
-func TestHandlerHeadUnauthorized(t *testing.T) {
+var testMethods = []string{http.MethodGet, http.MethodHead}
+
+func TestHandlerUnauthorized(t *testing.T) {
 	handler := &StorageHandler{
 		S3API:         &mockS3Client{},
 		Authenticator: &mockAuthenticator{false},
 	}
-	resp := getResponse(t, handler, http.MethodHead, randomURL())
-	assertStatusCode(t, resp, http.StatusUnauthorized)
+	for _, method := range testMethods {
+		t.Run(method, func(t *testing.T) {
+			resp := getResponse(t, handler, method, randomURL())
+			assertStatusCode(t, resp, http.StatusUnauthorized)
+			assertReadContent(t, resp, []byte(`{
+  "error": "not authorized"
+}
+`))
+		})
+	}
 }
 
-func TestHandlerHeadNotFound(t *testing.T) {
+func TestHandlerNotFound(t *testing.T) {
 	handler := &StorageHandler{
 		S3API:         &mockS3Client{},
 		Authenticator: &mockAuthenticator{true},
 	}
-	resp := getResponse(t, handler, http.MethodHead, randomURL())
-	assertStatusCode(t, resp, http.StatusNotFound)
+	for _, method := range testMethods {
+		t.Run(method, func(t *testing.T) {
+			resp := getResponse(t, handler, method, randomURL())
+			assertStatusCode(t, resp, http.StatusNotFound)
+		})
+	}
 }
 
-func TestHandlerHeadOK(t *testing.T) {
+func TestHandlerOK(t *testing.T) {
 	content := randomContent()
 	url := randomURL()
 	handler := &StorageHandler{
@@ -43,9 +58,13 @@ func TestHandlerHeadOK(t *testing.T) {
 		},
 		Authenticator: &mockAuthenticator{true},
 	}
-	resp := getResponse(t, handler, http.MethodHead, url)
-	assertStatusCode(t, resp, http.StatusOK)
-	assertContentLength(t, resp, len(content))
+	for _, method := range testMethods {
+		t.Run(method, func(t *testing.T) {
+			resp := getResponse(t, handler, method, url)
+			assertStatusCode(t, resp, http.StatusOK)
+			assertContentLength(t, resp, len(content))
+		})
+	}
 }
 
 func TestHandlerValidURL(t *testing.T) {
@@ -90,29 +109,7 @@ func TestHandlerValidURL(t *testing.T) {
 	}
 }
 
-func TestHandlerGetUnauthorized(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{false},
-	}
-	resp := getResponse(t, handler, http.MethodGet, randomURL())
-	assertStatusCode(t, resp, http.StatusUnauthorized)
-	assertReadContent(t, resp, []byte(`{
-  "error": "not authorized"
-}
-`))
-}
-
-func TestHandlerGetNotFound(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{true},
-	}
-	resp := getResponse(t, handler, http.MethodGet, randomURL())
-	assertStatusCode(t, resp, http.StatusNotFound)
-}
-
-func TestHandlerGetOK(t *testing.T) {
+func TestHandlerGetContent(t *testing.T) {
 	content := randomContent()
 	url := randomURL()
 	handler := &StorageHandler{
@@ -160,9 +157,7 @@ func TestHandlerCORSHeaders(t *testing.T) {
 		Authenticator: &mockAuthenticator{true},
 	}
 
-	methods := []string{http.MethodGet, http.MethodHead, http.MethodOptions}
-
-	for _, method := range methods {
+	for _, method := range testMethods {
 		resp := getResponse(t, handler, method, randomURL())
 
 		allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
@@ -205,9 +200,11 @@ func (m *mockS3Client) GetObjectWithContext(ctx context.Context, obj *s3.GetObje
 	if obj.Key == nil {
 		return nil, fmt.Errorf("no key provided")
 	}
+
 	content, ok := m.files[*obj.Key]
 	if !ok {
-		return nil, fmt.Errorf(s3.ErrCodeNoSuchKey)
+		// TODO(sean) check actual behavior of s3 endpoint and ensure we have mocked it.
+		return nil, awserr.New(s3.ErrCodeNoSuchKey, "", nil)
 	}
 
 	length := int64(len(content))
@@ -238,13 +235,13 @@ func getResponse(t *testing.T, h http.Handler, method string, url string) *http.
 
 func assertStatusCode(t *testing.T, resp *http.Response, status int) {
 	if resp.StatusCode != status {
-		t.Errorf("incorrect status code. got: %d want: %d", resp.StatusCode, status)
+		t.Fatalf("incorrect status code. got: %d want: %d", resp.StatusCode, status)
 	}
 }
 
 func assertContentLength(t *testing.T, resp *http.Response, length int) {
 	if resp.ContentLength != int64(length) {
-		t.Errorf("incorrect content length. got: %d want: %d", resp.StatusCode, length)
+		t.Fatalf("incorrect content length. got: %d want: %d", resp.StatusCode, length)
 	}
 }
 
@@ -261,7 +258,7 @@ func assertReadContent(t *testing.T, resp *http.Response, content []byte) {
 		t.Fatalf("error when reading body: %s", err.Error())
 	}
 	if !bytes.Equal(b, content) {
-		t.Errorf("content does not match. got: %v want: %v", b, content)
+		t.Fatalf("content does not match. got: %v want: %v", b, content)
 	}
 }
 
