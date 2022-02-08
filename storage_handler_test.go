@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -64,10 +65,14 @@ func TestHandlerValidURL(t *testing.T) {
 	}{
 		"Valid1":             {"job/task/1643842551600000001-sample.jpg", true},
 		"Valid2":             {"job/task/1643842551600000002-sample.jpg", true},
-		"TooFewSlashes":      {"task/node/1643842551688168762-sample.jpg", true},
-		"TooManySlashes":     {"extra/job/task/node/1643842551688168762-sample.jpg", true},
-		"BadTimestampLength": {"sage/task/node/16438425516881687620-sample.jpg", true},
-		"BadTimestampChars":  {"sage/task/node/164384X551688168762-sample.jpg", true},
+		"TooFewSlashes":      {"task/node/1643842551688168762-sample.jpg", false},
+		"TooManySlashes":     {"extra/job/task/node/1643842551688168762-sample.jpg", false},
+		"EmptyJob":           {"/task/node/164384X551688168762-sample.jpg", false},
+		"EmptyTask":          {"job//node/164384X551688168762-sample.jpg", false},
+		"EmptyNode":          {"job/task//164384X551688168762-sample.jpg", false},
+		"EmptyFilename":      {"job/task/node/", false},
+		"BadTimestampLength": {"sage/task/node/16438425516881687620-sample.jpg", false},
+		"BadTimestampChars":  {"sage/task/node/164384X551688168762-sample.jpg", false},
 	}
 
 	for name, tc := range testcases {
@@ -225,13 +230,22 @@ func assertReadContent(t *testing.T, resp *http.Response, content []byte) {
 	}
 }
 
+func randomString(n int) string {
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	s := make([]rune, n)
+	for i := range s {
+		s[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(s)
+}
+
 func randomURL() string {
-	// TODO(sean) actually make random
-	return "sage/task/node/1643842551688168762-sample.jpg"
+	ts := time.Unix(0, rand.Int63()).UnixNano()
+	return fmt.Sprintf("%s/%s/%s/%d-%s", randomString(11), randomString(13), randomString(16), ts, randomString(23))
 }
 
 func randomContent() []byte {
-	length := rand.Intn(1000) + 33
+	length := rand.Intn(1234) + 33
 	b := make([]byte, length)
 	for i := range b {
 		b[i] = byte(rand.Intn(length))
