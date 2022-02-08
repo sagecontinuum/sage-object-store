@@ -65,6 +65,7 @@ func TestHandlerValidURL(t *testing.T) {
 	}{
 		"Valid1":             {"job/task/node/1643842551600000001-sample.jpg", true},
 		"Valid2":             {"job/task/node/1643842551600000002-sample.jpg", true},
+		"Valid3":             {"job/task/node/1643842551600000003-can-have-multiple-dashes.jpg", true},
 		"TooFewSlashes":      {"task/node/1643842551688168762-sample.jpg", false},
 		"TooManySlashes":     {"extra/job/task/node/1643842551688168762-sample.jpg", false},
 		"EmptyJob":           {"/task/node/164384X551688168762-sample.jpg", false},
