@@ -20,13 +20,13 @@ func createRouter(handler *StorageHandler) *mux.Router {
 
 	// add discovery endpoint to show what's under /
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		type resp struct {
+		type response struct {
 			ID      string   `json:"id"`
 			Res     []string `json:"available_resources"`
 			Version string   `json:"version,omitempty"`
 		}
 
-		respondJSON(w, http.StatusOK, &resp{
+		respondJSON(w, http.StatusOK, &response{
 			ID:      "SAGE object store (node data)",
 			Res:     []string{"api/v1/"},
 			Version: "[[VERSION]]",
@@ -35,12 +35,12 @@ func createRouter(handler *StorageHandler) *mux.Router {
 
 	// add discovery endpoint to show what's under /api/v1/
 	router.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
-		type resp struct {
+		type response struct {
 			ID  string   `json:"id"`
 			Res []string `json:"available_resources"`
 		}
 
-		respondJSON(w, http.StatusOK, &resp{
+		respondJSON(w, http.StatusOK, &response{
 			ID:  "SAGE object store (node data)",
 			Res: []string{"data/"},
 		})

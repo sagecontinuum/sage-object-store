@@ -18,13 +18,13 @@ func respondJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 }
 
 func respondJSONError(w http.ResponseWriter, statusCode int, msg string, args ...interface{}) {
-	type resp struct {
+	type response struct {
 		Error string `json:"error,omitempty"`
 	}
 	if msg == "" {
 		respondJSON(w, statusCode, nil)
 	}
-	respondJSON(w, statusCode, &resp{
+	respondJSON(w, statusCode, &response{
 		Error: fmt.Sprintf(msg, args...),
 	})
 }
