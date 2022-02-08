@@ -34,7 +34,7 @@ func TestHandlerHeadNotFound(t *testing.T) {
 }
 
 func TestHandlerHeadOK(t *testing.T) {
-	content := randomContent(273)
+	content := randomContent()
 	url := randomURL()
 	handler := &StorageHandler{
 		S3API: &mockS3Client{
@@ -91,7 +91,7 @@ func TestHandlerGetNotFound(t *testing.T) {
 }
 
 func TestHandlerGetOK(t *testing.T) {
-	content := randomContent(273)
+	content := randomContent()
 	url := randomURL()
 	handler := &StorageHandler{
 		S3API: &mockS3Client{
@@ -214,10 +214,11 @@ func randomURL() string {
 	return "sage/task/node/1643842551688168762-sample.jpg"
 }
 
-func randomContent(n int) []byte {
-	b := make([]byte, n)
+func randomContent() []byte {
+	length := rand.Intn(1000) + 33
+	b := make([]byte, length)
 	for i := range b {
-		b[i] = byte(rand.Intn(256))
+		b[i] = byte(rand.Intn(length))
 	}
 	return b
 }
