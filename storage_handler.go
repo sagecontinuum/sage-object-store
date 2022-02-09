@@ -32,7 +32,7 @@ type StorageFile struct {
 }
 
 func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.log("%s %s", r.Method, r.URL)
+	h.log("%s %s -> %s: serving", r.Method, r.URL, r.RemoteAddr)
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -113,12 +113,16 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	written, err := io.Copy(w, resp.Body)
-	fileDownloadByteSize.Add(float64(written))
-	if err != nil {
-		h.log("write failed for %s %s: %s", r.Method, r.URL, err.Error())
-		respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
-		return
+	switch {
+	case resp.ContentLength != nil && written != *resp.ContentLength:
+		h.log("%s %s -> %s: partial: %d of %d bytes written", r.Method, r.URL, r.RemoteAddr, written, *resp.ContentLength)
+	case err != nil:
+		h.log("%s %s -> %s: write error %s", r.Method, r.URL, r.RemoteAddr, err.Error())
+	default:
+		h.log("%s %s -> %s: ok: %d bytes written", r.Method, r.URL, r.RemoteAddr, written)
 	}
+	// track bytes written, even if write fails
+	fileDownloadByteSize.Add(float64(written))
 }
 
 func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, err error) {
