@@ -32,9 +32,7 @@ type StorageFile struct {
 }
 
 func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.Logger != nil {
-		h.Logger.Printf("storage handler: %s %s", r.Method, r.URL)
-	}
+	h.log("%s %s", r.Method, r.URL)
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -73,10 +71,12 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		h.handleS3Error(w, r, err)
 		return
 	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", sf.Filename))
+
 	if resp.ContentLength != nil {
 		w.Header().Add("Content-Length", fmt.Sprintf("%d", *resp.ContentLength))
 	}
-	respondJSON(w, http.StatusOK, &resp)
 }
 
 func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +115,7 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 	written, err := io.Copy(w, resp.Body)
 	fileDownloadByteSize.Add(float64(written))
 	if err != nil {
+		h.log("write failed for %s %s: %s", r.Method, r.URL, err.Error())
 		respondJSONError(w, http.StatusInternalServerError, "Error getting data: %s", err.Error())
 		return
 	}
@@ -125,6 +126,7 @@ func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, e
 	case awserr.Error:
 		switch err.Code() {
 		case s3.ErrCodeNoSuchBucket:
+			h.log("no s3 bucket found: %s", err.Error())
 			respondJSONError(w, http.StatusNotFound, "bucket not found: %s", err.Error())
 			return
 		case s3.ErrCodeNoSuchKey:
@@ -132,6 +134,7 @@ func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, e
 			return
 		}
 	}
+	h.log("s3 request failed: %s", err.Error())
 	respondJSONError(w, http.StatusInternalServerError, "internal server error with S3 request: %s", err.Error())
 }
 
@@ -147,6 +150,13 @@ func (h *StorageHandler) handleAuth(w http.ResponseWriter, r *http.Request, f *S
 
 func (h *StorageHandler) s3KeyForFileID(f *StorageFile) string {
 	return path.Join(h.S3RootFolder, f.JobID, f.TaskID, f.NodeID, f.Filename)
+}
+
+func (h *StorageHandler) log(format string, v ...interface{}) {
+	if h.Logger == nil {
+		return
+	}
+	h.Logger.Printf(format, v...)
 }
 
 func parseNanosecondTimestamp(s string) (time.Time, error) {
