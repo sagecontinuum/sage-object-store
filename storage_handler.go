@@ -130,15 +130,16 @@ func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, e
 	case awserr.Error:
 		switch err.Code() {
 		case s3.ErrCodeNoSuchBucket:
-			h.log("no s3 bucket found: %s", err.Error())
-			respondJSONError(w, http.StatusNotFound, "bucket not found: %s", err.Error())
+			h.log("%s %s -> %s: bucket not found", r.Method, r.URL, r.RemoteAddr)
+			respondJSONError(w, http.StatusNotFound, "bucket not found")
 			return
 		case s3.ErrCodeNoSuchKey:
-			respondJSONError(w, http.StatusNotFound, "file not found: %s", err.Error())
+			h.log("%s %s -> %s: file not found", r.Method, r.URL, r.RemoteAddr)
+			respondJSONError(w, http.StatusNotFound, "file not found")
 			return
 		}
 	}
-	h.log("s3 request failed: %s", err.Error())
+	h.log("%s %s -> %s: s3 error: %s", r.Method, r.URL, r.RemoteAddr, err.Error())
 	respondJSONError(w, http.StatusInternalServerError, "internal server error with S3 request: %s", err.Error())
 }
 
@@ -147,6 +148,7 @@ func (h *StorageHandler) handleAuth(w http.ResponseWriter, r *http.Request, f *S
 	if h.Authenticator.Authorized(f, username, password, hasAuth) {
 		return nil
 	}
+	h.log("%s %s -> %s: not authorized", r.Method, r.URL, r.RemoteAddr)
 	w.Header().Set("WWW-Authenticate", "Basic domain=storage.sagecontinuum.org")
 	respondJSONError(w, http.StatusUnauthorized, "not authorized")
 	return fmt.Errorf("not authorized")
