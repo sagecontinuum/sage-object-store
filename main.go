@@ -5,18 +5,42 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func createRouter(handler *StorageHandler) *mux.Router {
-	router := mux.NewRouter()
+func main() {
+	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on")
+	flag.Parse()
+
+	router := http.NewServeMux()
+
+	auth := &TableAuthenticator{}
+	go periodicallyUpdateAuthConfig(auth)
+
+	session := session.Must(session.NewSession(&aws.Config{
+		Credentials: credentials.NewStaticCredentials(
+			mustGetenv("s3accessKeyID"),
+			mustGetenv("s3secretAccessKey"),
+			""),
+		Endpoint:         aws.String(mustGetenv("s3Endpoint")),
+		Region:           aws.String("us-west-2"),
+		DisableSSL:       aws.Bool(false),
+		S3ForcePathStyle: aws.Bool(true),
+	}))
+
+	router.Handle("/api/v1/data/", http.StripPrefix("/api/v1/data/", &StorageHandler{
+		S3API:         s3.New(session),
+		S3Bucket:      mustGetenv("s3bucket"),
+		S3RootFolder:  mustGetenv("s3rootFolder"),
+		Authenticator: auth,
+		Logger:        log.Default(),
+	}))
 
 	// add discovery endpoint to show what's under /
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -46,13 +70,32 @@ func createRouter(handler *StorageHandler) *mux.Router {
 		})
 	})
 
-	router.Handle("/api/v1/data/", http.StripPrefix("/api/v1/data/", handler))
-
 	// add prometheus metrics endpoint
-	router.Handle("/metrics", promhttp.Handler()).Methods(http.MethodGet)
+	router.Handle("/metrics", promhttp.Handler())
 
-	router.Use(mux.CORSMethodMiddleware(router))
-	return router
+	log.Printf("listening on %s", *addr)
+	log.Fatal(http.ListenAndServe(*addr, router))
+}
+
+func periodicallyUpdateAuthConfig(auth *TableAuthenticator) {
+	for {
+		nodes, err := GetNodeTableFromURL("https://api.sagecontinuum.org/production")
+		if err != nil {
+			log.Printf("failed to get node table: %s", err.Error())
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		auth.UpdateConfig(&TableAuthenticatorConfig{
+			Username:                  os.Getenv("policyRestrictedUsername"),
+			Password:                  os.Getenv("policyRestrictedPassword"),
+			Nodes:                     nodes,
+			RestrictedTasksSubstrings: []string{},
+		})
+
+		log.Printf("updated auth config")
+		time.Sleep(time.Minute)
+	}
 }
 
 func mustGetenv(key string) string {
@@ -61,51 +104,4 @@ func mustGetenv(key string) string {
 		log.Fatalf("env %q is required", key)
 	}
 	return val
-}
-
-func main() {
-	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on")
-	flag.Parse()
-
-	nodes, err := GetNodeTableFromURL("https://api.sagecontinuum.org/production")
-	if err != nil {
-		log.Fatalf("failed to load nodes table: %s", err)
-	}
-
-	s3Endpoint := mustGetenv("s3Endpoint")
-	s3accessKeyID := mustGetenv("s3accessKeyID")
-	s3secretAccessKey := mustGetenv("s3secretAccessKey")
-	s3bucket := mustGetenv("s3bucket")
-	s3rootFolder := os.Getenv("s3rootFolder")
-
-	session := session.Must(session.NewSession(&aws.Config{
-		Credentials:      credentials.NewStaticCredentials(s3accessKeyID, s3secretAccessKey, ""),
-		Endpoint:         aws.String(s3Endpoint),
-		Region:           aws.String("us-west-2"),
-		DisableSSL:       aws.Bool(false),
-		S3ForcePathStyle: aws.Bool(true),
-	}))
-
-	TableAuthenticator := &TableAuthenticator{}
-
-	TableAuthenticator.UpdateConfig(&TableAuthenticatorConfig{
-		Username:                  os.Getenv("policyRestrictedUsername"),
-		Password:                  os.Getenv("policyRestrictedPassword"),
-		Nodes:                     nodes,
-		RestrictedTasksSubstrings: strings.Split(os.Getenv("policyRestrictedTaskSubstrings"), ","),
-	})
-	// TODO(sean) sync with production api periodically
-
-	handler := &StorageHandler{
-		S3API:         s3.New(session),
-		S3Bucket:      s3bucket,
-		S3RootFolder:  s3rootFolder,
-		Authenticator: TableAuthenticator,
-		Logger:        log.Default(),
-	}
-
-	r := createRouter(handler)
-
-	log.Printf("listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, r))
 }

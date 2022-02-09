@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -19,8 +18,10 @@ type TableAuthenticator struct {
 }
 
 type TableAuthenticatorNode struct {
+	NodeID         string
 	Restricted     bool
 	CommissionDate *time.Time
+	RetireDate     *time.Time
 }
 
 type TableAuthenticatorConfig struct {
@@ -85,35 +86,31 @@ var nodeIDRE = regexp.MustCompile("[a-f0-9]{16}")
 
 func GetNodeTableFromURL(URL string) (map[string]*TableAuthenticatorNode, error) {
 	resp, err := http.Get(URL)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("(getcommission_dates) Got resp.StatusCode: %d", resp.StatusCode)
-	}
 	if err != nil {
-		return nil, fmt.Errorf("(getcommission_dates) Could not retrive url: %s", err.Error())
+		return nil, fmt.Errorf("failed to get node table: %s", err.Error())
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get node table: %s", http.StatusText(resp.StatusCode))
 	}
 	defer resp.Body.Close()
 	return readNodeTable(resp.Body)
 }
 
 func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
-	var items []struct {
+	type responseItem struct {
 		NodeID         string `json:"node_id"`
-		Restricted     string `json:"restricted"`
+		Restricted     bool   `json:"restricted"`
 		CommissionDate string `json:"commission_date"`
 		RetireDate     string `json:"retired_date"` // notice it's retired, not retire
 	}
+
+	var items []responseItem
 
 	if err := json.NewDecoder(r).Decode(&items); err != nil {
 		return nil, fmt.Errorf("error when reading node table: %s", err)
 	}
 
 	nodes := make(map[string]*TableAuthenticatorNode)
-
-	// hack to get this from environment
-	restricted := make(map[string]bool)
-	for _, s := range strings.Split(os.Getenv("policyRestrictedNodes"), ",") {
-		restricted[strings.ToLower(s)] = true
-	}
 
 	for _, item := range items {
 		item.NodeID = strings.ToLower(item.NodeID)
@@ -123,14 +120,23 @@ func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
 		}
 
 		node := &TableAuthenticatorNode{
-			Restricted: restricted[item.NodeID],
+			NodeID:     item.NodeID,
+			Restricted: item.Restricted,
 		}
 
 		if item.CommissionDate != "" {
 			if t, err := time.Parse("2006-01-02", item.CommissionDate); err == nil {
 				node.CommissionDate = &t
 			} else {
-				log.Printf("commission date for %s is invalid", item.NodeID)
+				log.Printf("commission date is invalid for node %s", item.NodeID)
+			}
+		}
+
+		if item.RetireDate != "" {
+			if t, err := time.Parse("2006-01-02", item.CommissionDate); err == nil {
+				node.RetireDate = &t
+			} else {
+				log.Printf("retired date is invalid for node %s", item.NodeID)
 			}
 		}
 
