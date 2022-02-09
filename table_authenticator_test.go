@@ -6,13 +6,27 @@ import (
 	"time"
 )
 
+func TestNew(t *testing.T) {
+	auth := NewTableAuthenticator()
+
+	auth.Authorized(&StorageFile{
+		NodeID:    "somenode",
+		Timestamp: time.Now(),
+	}, "user", "pass", false)
+
+	auth.Authorized(&StorageFile{
+		NodeID:    "somenode",
+		Timestamp: time.Now(),
+	}, "user", "pass", true)
+}
+
 func TestAuthorized(t *testing.T) {
 	makeCommissionDate := func(year, month, day int) *time.Time {
 		t := time.Now().AddDate(year, month, day)
 		return &t
 	}
 
-	auth := &TableAuthenticator{}
+	auth := NewTableAuthenticator()
 
 	auth.UpdateConfig(&TableAuthenticatorConfig{
 		Username: "user",
@@ -146,7 +160,7 @@ func TestAuthorized(t *testing.T) {
 func TestAuthorizedFuzz(t *testing.T) {
 	nodes := randomNodeList(1000)
 
-	auth := &TableAuthenticator{}
+	auth := NewTableAuthenticator()
 	auth.UpdateConfig(&TableAuthenticatorConfig{
 		Username:                  "user",
 		Password:                  "secret",

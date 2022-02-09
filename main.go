@@ -20,7 +20,7 @@ func main() {
 
 	router := http.NewServeMux()
 
-	auth := &TableAuthenticator{}
+	auth := NewTableAuthenticator()
 	go periodicallyUpdateAuthConfig(auth)
 
 	session := session.Must(session.NewSession(&aws.Config{

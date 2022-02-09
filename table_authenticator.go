@@ -17,6 +17,15 @@ type TableAuthenticator struct {
 	mu     sync.RWMutex
 }
 
+func NewTableAuthenticator() *TableAuthenticator {
+	return &TableAuthenticator{
+		config: &TableAuthenticatorConfig{
+			Nodes:                     map[string]*TableAuthenticatorNode{},
+			RestrictedTasksSubstrings: []string{},
+		},
+	}
+}
+
 type TableAuthenticatorNode struct {
 	NodeID         string
 	Restricted     bool
