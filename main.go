@@ -79,7 +79,8 @@ func main() {
 
 func periodicallyUpdateAuthConfig(auth *TableAuthenticator) {
 	for {
-		nodes, err := GetNodeTableFromURL("https://api.sagecontinuum.org/production")
+		nodes, err := GetNodeTableFromURL(mustGetenv("productionURL"))
+
 		if err != nil {
 			log.Printf("failed to get node table: %s", err.Error())
 			time.Sleep(10 * time.Second)

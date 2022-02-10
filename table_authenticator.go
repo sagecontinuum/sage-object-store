@@ -71,7 +71,7 @@ func (m *TableAuthenticator) allowed(f *StorageFile) bool {
 	return node.CommissionDate != nil && !f.Timestamp.Before(*node.CommissionDate) && node.Public
 }
 
-var nodeIDRE = regexp.MustCompile("[a-f0-9]{16}")
+var nodeIDRE = regexp.MustCompile("^[a-f0-9]{16}$")
 
 func GetNodeTableFromURL(URL string) (map[string]*TableAuthenticatorNode, error) {
 	resp, err := http.Get(URL)
