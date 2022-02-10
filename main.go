@@ -18,6 +18,8 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "address to listen on")
 	flag.Parse()
 
+	log.Printf("starting sage-object-store version %s", ReleaseVersion)
+
 	router := http.NewServeMux()
 
 	auth := NewTableAuthenticator()
