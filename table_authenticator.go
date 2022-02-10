@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+// TableAuthenticator is an Authenticator which authenticates based
+// on a fixed username / password and table of nodes.
 type TableAuthenticator struct {
 	config *TableAuthenticatorConfig
 	mu     sync.RWMutex
