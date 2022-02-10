@@ -17,12 +17,11 @@ type TableAuthenticator struct {
 	mu     sync.RWMutex
 }
 
-func NewTableAuthenticator() *TableAuthenticator {
-	return &TableAuthenticator{
-		config: &TableAuthenticatorConfig{
-			Nodes: map[string]*TableAuthenticatorNode{},
-		},
-	}
+type TableAuthenticatorConfig struct {
+	// NOTE(sean) username / password is part of the config, as this should eventually be "pluggable" against an auth system
+	Username string
+	Password string
+	Nodes    map[string]*TableAuthenticatorNode
 }
 
 type TableAuthenticatorNode struct {
@@ -32,14 +31,16 @@ type TableAuthenticatorNode struct {
 	Public         bool
 }
 
-type TableAuthenticatorConfig struct {
-	// NOTE(sean) username / password is part of the config, as this should eventually be "pluggable" against an auth system
-	Username string
-	Password string
-	Nodes    map[string]*TableAuthenticatorNode
+// NewTableAuthenticator creates a newly initialized TableAuthenticator.
+func NewTableAuthenticator() *TableAuthenticator {
+	return &TableAuthenticator{
+		config: &TableAuthenticatorConfig{
+			Nodes: map[string]*TableAuthenticatorNode{},
+		},
+	}
 }
 
-// UpdateData
+// UpdateConfig updates the config used for authorization.
 func (a *TableAuthenticator) UpdateConfig(config *TableAuthenticatorConfig) {
 	a.mu.Lock()
 	// TODO(sean) protect against ownership bugs by cloning data
@@ -73,6 +74,7 @@ func (m *TableAuthenticator) allowed(f *StorageFile) bool {
 
 var nodeIDRE = regexp.MustCompile("^[a-f0-9]{16}$")
 
+// GetNodeTableFromURL gets a new node auth list from the provided URL.
 func GetNodeTableFromURL(URL string) (map[string]*TableAuthenticatorNode, error) {
 	resp, err := http.Get(URL)
 	if err != nil {
