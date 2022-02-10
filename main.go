@@ -23,11 +23,10 @@ func main() {
 	auth := NewTableAuthenticator()
 	go periodicallyUpdateAuthConfig(auth)
 
+	credentials := credentials.NewStaticCredentials(mustGetenv("s3accessKeyID"), mustGetenv("s3secretAccessKey"), "")
+
 	session := session.Must(session.NewSession(&aws.Config{
-		Credentials: credentials.NewStaticCredentials(
-			mustGetenv("s3accessKeyID"),
-			mustGetenv("s3secretAccessKey"),
-			""),
+		Credentials:      credentials,
 		Endpoint:         aws.String(mustGetenv("s3Endpoint")),
 		Region:           aws.String("us-west-2"),
 		DisableSSL:       aws.Bool(false),
