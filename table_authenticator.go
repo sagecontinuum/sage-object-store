@@ -88,9 +88,9 @@ func GetNodeTableFromURL(URL string) (map[string]*TableAuthenticatorNode, error)
 func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
 	type responseItem struct {
 		NodeID         string `json:"node_id"`
-		Restricted     bool   `json:"restricted"`
+		FilesPublic    bool   `json:"files_public"`
 		CommissionDate string `json:"commission_date"`
-		RetireDate     string `json:"retired_date"` // notice it's retired, not retire
+		RetireDate     string `json:"retire_date"`
 	}
 
 	var items []responseItem
@@ -110,7 +110,7 @@ func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
 
 		node := &TableAuthenticatorNode{
 			NodeID: item.NodeID,
-			Public: !item.Restricted,
+			Public: item.FilesPublic,
 		}
 
 		if item.CommissionDate != "" {
