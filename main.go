@@ -52,7 +52,7 @@ func main() {
 		respondJSON(w, http.StatusOK, &response{
 			ID:      "SAGE object store (node data)",
 			Res:     []string{"api/v1/"},
-			Version: "[[VERSION]]",
+			Version: "{RELEASE_VERSION}",
 		})
 	})
 
