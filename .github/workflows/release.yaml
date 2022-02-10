@@ -33,4 +33,4 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: waggle/${{ github.event.repository.name }}:${{ env.RELEASE_VERSION }}
-          build-args: "RELEASE_VERSION=${{ RELEASE_VERSION }}"
+          build-args: "RELEASE_VERSION=${{ env.RELEASE_VERSION }}"
