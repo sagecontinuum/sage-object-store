@@ -20,25 +20,23 @@ type TableAuthenticator struct {
 func NewTableAuthenticator() *TableAuthenticator {
 	return &TableAuthenticator{
 		config: &TableAuthenticatorConfig{
-			Nodes:                     map[string]*TableAuthenticatorNode{},
-			RestrictedTasksSubstrings: []string{},
+			Nodes: map[string]*TableAuthenticatorNode{},
 		},
 	}
 }
 
 type TableAuthenticatorNode struct {
 	NodeID         string
-	Restricted     bool
 	CommissionDate *time.Time
 	RetireDate     *time.Time
+	Public         bool
 }
 
 type TableAuthenticatorConfig struct {
 	// NOTE(sean) username / password is part of the config, as this should eventually be "pluggable" against an auth system
-	Username                  string
-	Password                  string
-	Nodes                     map[string]*TableAuthenticatorNode
-	RestrictedTasksSubstrings []string
+	Username string
+	Password string
+	Nodes    map[string]*TableAuthenticatorNode
 }
 
 // UpdateData
@@ -63,32 +61,14 @@ func (a *TableAuthenticator) authenticated(username, password string, hasAuth bo
 func (m *TableAuthenticator) allowed(f *StorageFile) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	// we assume private by default, so no config means everything is private
 	if m.config == nil {
 		return false
 	}
-
 	node, ok := m.config.Nodes[f.NodeID]
 	if !ok {
 		return false
 	}
-
-	// check forced restriction
-	if node.Restricted {
-		return false
-	}
-	// check commission date
-	if node.CommissionDate == nil || f.Timestamp.Before(*node.CommissionDate) {
-		return false
-	}
-	// check task for restricted substrings
-	for _, s := range m.config.RestrictedTasksSubstrings {
-		if strings.Contains(f.TaskID, s) {
-			return false
-		}
-	}
-	return true
+	return node.CommissionDate != nil && !f.Timestamp.Before(*node.CommissionDate) && node.Public
 }
 
 var nodeIDRE = regexp.MustCompile("[a-f0-9]{16}")
@@ -129,8 +109,8 @@ func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
 		}
 
 		node := &TableAuthenticatorNode{
-			NodeID:     item.NodeID,
-			Restricted: item.Restricted,
+			NodeID: item.NodeID,
+			Public: !item.Restricted,
 		}
 
 		if item.CommissionDate != "" {

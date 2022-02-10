@@ -87,10 +87,9 @@ func periodicallyUpdateAuthConfig(auth *TableAuthenticator) {
 		}
 
 		auth.UpdateConfig(&TableAuthenticatorConfig{
-			Username:                  os.Getenv("policyRestrictedUsername"),
-			Password:                  os.Getenv("policyRestrictedPassword"),
-			Nodes:                     nodes,
-			RestrictedTasksSubstrings: []string{},
+			Username: os.Getenv("policyRestrictedUsername"),
+			Password: os.Getenv("policyRestrictedPassword"),
+			Nodes:    nodes,
 		})
 
 		log.Printf("updated auth config")

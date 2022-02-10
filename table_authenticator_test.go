@@ -8,16 +8,13 @@ import (
 
 func TestNew(t *testing.T) {
 	auth := NewTableAuthenticator()
-
-	auth.Authorized(&StorageFile{
+	file := &StorageFile{
 		NodeID:    "somenode",
 		Timestamp: time.Now(),
-	}, "user", "pass", false)
-
-	auth.Authorized(&StorageFile{
-		NodeID:    "somenode",
-		Timestamp: time.Now(),
-	}, "user", "pass", true)
+	}
+	if auth.Authorized(file, "user", "pass", false) == true {
+		t.Fatalf("new authenticator should not authorize any files")
+	}
 }
 
 func TestAuthorized(t *testing.T) {
@@ -32,32 +29,25 @@ func TestAuthorized(t *testing.T) {
 		Username: "user",
 		Password: "secret",
 		Nodes: map[string]*TableAuthenticatorNode{
-			"uncommissioned": {
-				Restricted: false,
-			},
 			"commissioned1Y": {
-				Restricted:     false,
+				Public:         true,
 				CommissionDate: makeCommissionDate(-1, 0, 0),
 			},
 			"commissioned3Y": {
-				Restricted:     false,
+				Public:         true,
 				CommissionDate: makeCommissionDate(-3, 0, 0),
 			},
-			"restrictedNode1": {
-				Restricted:     true,
+			"uncommissioned": {
+				Public: true,
+			},
+			"privateNode1": {
+				Public:         false,
 				CommissionDate: makeCommissionDate(-1, 0, 0),
 			},
-			"restrictedNode2": {
-				Restricted:     true,
+			"privateNode2": {
+				Public:         false,
 				CommissionDate: makeCommissionDate(-1, 0, 0),
 			},
-		},
-		RestrictedTasksSubstrings: []string{
-			"imagesampler-bottom",
-			"imagesampler-left",
-			"imagesampler-right",
-			"imagesampler-top",
-			"audiosampler",
 		},
 	})
 
@@ -65,82 +55,80 @@ func TestAuthorized(t *testing.T) {
 		File   *StorageFile
 		Public bool
 	}{
-		"allow": {
+		"publicNow": {
 			File: &StorageFile{
 				NodeID:    "commissioned1Y",
 				Timestamp: time.Now(),
 			},
 			Public: true,
 		},
-		"allowPast1": {
+		"publicPast1": {
 			File: &StorageFile{
 				NodeID:    "commissioned1Y",
 				Timestamp: time.Now().AddDate(0, -6, 0),
 			},
 			Public: true,
 		},
-		"allowPast2": {
+		"publicPast2": {
 			File: &StorageFile{
 				NodeID:    "commissioned3Y",
 				Timestamp: time.Now().AddDate(-2, 0, 0),
 			},
 			Public: true,
 		},
-		"allowFuture": {
+		"publicFuture": {
 			File: &StorageFile{
 				NodeID:    "commissioned3Y",
 				Timestamp: time.Now().AddDate(1, 0, 0),
 			},
 			Public: true,
 		},
-		"restrictNode1": {
+		"privateNode1": {
 			File: &StorageFile{
-				NodeID:    "restrictedNode1",
+				NodeID:    "privateNode1",
 				Timestamp: time.Now(),
 			},
 			Public: false,
 		},
-		"restrictNode2": {
+		"privateNode2": {
 			File: &StorageFile{
-				NodeID:    "restrictedNode2",
+				NodeID:    "privateNode2",
 				Timestamp: time.Now(),
 			},
 			Public: false,
 		},
-		"restrictTask1": {
-			File: &StorageFile{
-				TaskID:    "imagesampler-bottom",
-				NodeID:    "commissioned1Y",
-				Timestamp: time.Now(),
-			},
-			Public: false,
-		},
-		"restrictTask2": {
-			File: &StorageFile{
-				TaskID:    "imagesampler-top",
-				NodeID:    "commissioned1Y",
-				Timestamp: time.Now(),
-			},
-			Public: false,
-		},
-		"restrictPast1": {
+		"privatePast1": {
 			File: &StorageFile{
 				NodeID:    "commissioned1Y",
 				Timestamp: time.Now().AddDate(-1, 0, -1),
 			},
 			Public: false,
 		},
-		"restrictPast2": {
+		"privatePast2": {
 			File: &StorageFile{
 				NodeID:    "commissioned3Y",
 				Timestamp: time.Now().AddDate(-3, 0, -1),
 			},
 			Public: false,
 		},
-		"restrictUncommissioned": {
+		"privateUncommissioned1": {
 			File: &StorageFile{
 				NodeID:    "uncommissioned",
 				Timestamp: time.Now().AddDate(-3, 0, -1),
+			},
+			Public: false,
+		},
+		"privateUncommissioned2": {
+			File: &StorageFile{
+				NodeID:    "uncommissioned",
+				Timestamp: time.Now(),
+			},
+			Public: false,
+		},
+		"privateUncommissioned3": {
+			File: &StorageFile{
+				NodeID:    "uncommissioned",
+				Timestamp: time.Now().AddDate(0, 0, 1),
 			},
 			Public: false,
 		},
@@ -158,19 +146,18 @@ func TestAuthorized(t *testing.T) {
 }
 
 func TestAuthorizedFuzz(t *testing.T) {
-	nodes := randomNodeList(1000)
+	nodes := randomNodeList(10)
 
 	auth := NewTableAuthenticator()
 	auth.UpdateConfig(&TableAuthenticatorConfig{
-		Username:                  "user",
-		Password:                  "secret",
-		Nodes:                     nodes,
-		RestrictedTasksSubstrings: []string{},
+		Username: "user",
+		Password: "secret",
+		Nodes:    nodes,
 	})
 
 	for nodeID, node := range nodes {
-		if node.CommissionDate == nil || node.Restricted {
-			t.Run("UncommissionedOrRestricted", func(t *testing.T) {
+		if node.CommissionDate == nil || !node.Public {
+			t.Run("UncommissionedOrPrivate", func(t *testing.T) {
 				assertPrivate(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: time.Now(),
@@ -185,7 +172,7 @@ func TestAuthorizedFuzz(t *testing.T) {
 				})
 			})
 		} else {
-			t.Run("CommissionedAndUnrestricted", func(t *testing.T) {
+			t.Run("CommissionedAndPublic", func(t *testing.T) {
 				assertPublic(t, auth, &StorageFile{
 					NodeID:    nodeID,
 					Timestamp: *node.CommissionDate,
@@ -242,7 +229,7 @@ func randomNodeList(n int) map[string]*TableAuthenticatorNode {
 		// generate a random commission date in the past
 		cdate := time.Now().AddDate(0, 0, -rand.Intn(1000))
 		nodes[randomNodeID()] = &TableAuthenticatorNode{
-			Restricted:     rand.Intn(2) == 0,
+			Public:         rand.Intn(2) == 0,
 			CommissionDate: &cdate,
 		}
 	}
