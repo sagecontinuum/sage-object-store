@@ -1,6 +1,6 @@
 package main
 
-// Authenticator defines the Authorized which can be used to implement whether
+// Authenticator defines the Authorized method which can be used to implement whether
 // or not a user has access a specific file.
 //
 // TODO(sean) In principle, Authenticator is totally independent from the rest of
