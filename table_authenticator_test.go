@@ -146,7 +146,7 @@ func TestAuthorized(t *testing.T) {
 }
 
 func TestAuthorizedFuzz(t *testing.T) {
-	nodes := randomNodeList(10)
+	nodes := randomNodeList(1000)
 
 	auth := NewTableAuthenticator()
 	auth.UpdateConfig(&TableAuthenticatorConfig{
