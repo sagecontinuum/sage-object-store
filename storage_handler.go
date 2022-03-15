@@ -55,10 +55,6 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.handleAuth(w, r, sf); err != nil {
-		return
-	}
-
 	s3key := h.s3KeyForFileID(sf)
 
 	headObjectInput := s3.HeadObjectInput{

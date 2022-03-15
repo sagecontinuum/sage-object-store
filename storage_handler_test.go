@@ -19,21 +19,32 @@ import (
 
 var testMethods = []string{http.MethodGet, http.MethodHead}
 
-func TestHandlerUnauthorized(t *testing.T) {
+func TestHandlerGetUnauthorized(t *testing.T) {
 	handler := &StorageHandler{
 		S3API:         &mockS3Client{},
 		Authenticator: &mockAuthenticator{false},
 	}
-	for _, method := range testMethods {
-		t.Run(method, func(t *testing.T) {
-			resp := getResponse(t, handler, method, randomURL())
-			assertStatusCode(t, resp, http.StatusUnauthorized)
-			assertReadContent(t, resp, []byte(`{
+	resp := getResponse(t, handler, http.MethodGet, randomURL())
+	assertStatusCode(t, resp, http.StatusUnauthorized)
+	assertReadContent(t, resp, []byte(`{
   "error": "not authorized"
 }
 `))
-		})
+}
+
+func TestHandlerHeadAuthorized(t *testing.T) {
+	url := randomURL()
+	handler := &StorageHandler{
+		S3API: &mockS3Client{
+			files: map[string][]byte{
+				url: randomContent(),
+			},
+		},
+		Authenticator: &mockAuthenticator{false},
 	}
+	resp := getResponse(t, handler, http.MethodHead, url)
+	assertStatusCode(t, resp, http.StatusOK)
+	assertReadContent(t, resp, []byte(``))
 }
 
 func TestHandlerNotFound(t *testing.T) {
