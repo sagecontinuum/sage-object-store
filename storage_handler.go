@@ -125,16 +125,20 @@ func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, e
 	switch err := err.(type) {
 	case awserr.Error:
 		switch err.Code() {
-		case s3.ErrCodeNoSuchBucket:
-			h.log("%s %s -> %s: bucket not found", r.Method, r.URL, r.RemoteAddr)
-			respondJSONError(w, http.StatusNotFound, "bucket not found")
-			return
-		case s3.ErrCodeNoSuchKey:
-			h.log("%s %s -> %s: file not found", r.Method, r.URL, r.RemoteAddr)
-			respondJSONError(w, http.StatusNotFound, "file not found")
+		case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey:
+			h.log("%s %s -> %s: not found", r.Method, r.URL, r.RemoteAddr)
+			respondJSONError(w, http.StatusNotFound, "not found")
 			return
 		}
 	}
+
+	// TODO(sean) hack to detect not found on head requests. should do integration testing against minio for these cases.
+	if strings.HasPrefix("NotFound", err.Error()) {
+		h.log("%s %s -> %s: not found", r.Method, r.URL, r.RemoteAddr)
+		respondJSONError(w, http.StatusNotFound, "not found")
+		return
+	}
+
 	h.log("%s %s -> %s: s3 error: %s", r.Method, r.URL, r.RemoteAddr, err.Error())
 	respondJSONError(w, http.StatusInternalServerError, "internal server error with S3 request: %s", err.Error())
 }
