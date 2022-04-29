@@ -133,7 +133,7 @@ func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, e
 	}
 
 	// TODO(sean) hack to detect not found on head requests. should do integration testing against minio for these cases.
-	if strings.HasPrefix("NotFound", err.Error()) {
+	if strings.HasPrefix(err.Error(), "NotFound") {
 		h.log("%s %s -> %s: not found", r.Method, r.URL, r.RemoteAddr)
 		respondJSONError(w, http.StatusNotFound, "not found")
 		return

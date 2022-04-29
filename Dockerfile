@@ -3,7 +3,7 @@ ARG RELEASE_VERSION
 WORKDIR /build
 COPY . .
 RUN sed -i -e "s/RELEASE_VERSION/${RELEASE_VERSION}/" version.go && \
-    CGO_ENABLED=0 go build -ldflags="-s -w" -o sage-object-store
+    CGO_ENABLED=0 go build
 
 # using alpine instead of scratch for x509 root certificates
 FROM alpine:3.15
