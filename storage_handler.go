@@ -55,11 +55,9 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s3key := h.s3KeyForFileID(sf)
-
 	headObjectInput := s3.HeadObjectInput{
-		Bucket: &h.S3Bucket,
-		Key:    &s3key,
+		Bucket: aws.String(h.S3Bucket),
+		Key:    aws.String(h.s3KeyForFileID(sf)),
 	}
 
 	resp, err := h.S3API.HeadObjectWithContext(r.Context(), &headObjectInput)
@@ -93,7 +91,7 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 
 	presignedURL, err := req.Presign(60 * time.Second)
 	if err != nil {
-		h.handleS3Error(w, r, err)
+		http.Error(w, fmt.Sprintf("error getting presigned url: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
