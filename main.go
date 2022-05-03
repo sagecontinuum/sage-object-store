@@ -36,9 +36,11 @@ func main() {
 	}))
 
 	router.Handle("/api/v1/data/", http.StripPrefix("/api/v1/data/", &StorageHandler{
-		S3API:         s3.New(session),
-		S3Bucket:      mustGetenv("s3bucket"),
-		S3RootFolder:  mustGetenv("s3rootFolder"),
+		Storage: &S3Storage{
+			S3:     s3.New(session),
+			Bucket: mustGetenv("s3bucket"),
+		},
+		RootFolder:    mustGetenv("s3rootFolder"),
 		Authenticator: auth,
 		Logger:        log.Default(),
 	}))

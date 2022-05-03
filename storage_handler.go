@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,10 +16,42 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
+type ObjectInfo struct {
+	ContentLength int64
+}
+
+type Storage interface {
+	GetObjectInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error)
+	GetObjectPresignedURL(ctx context.Context, key string) (string, error)
+}
+
+type S3Storage struct {
+	Bucket string
+	S3     s3iface.S3API
+}
+
+func (s *S3Storage) GetObjectInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error) {
+	return s.S3.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(key),
+	})
+}
+
+func (s *S3Storage) GetObjectPresignedURL(ctx context.Context, key string) (string, error) {
+	req, _ := s.S3.GetObjectRequest(&s3.GetObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(key),
+	})
+	presignedURL, err := req.Presign(60 * time.Second)
+	if err != nil {
+		return "", fmt.Errorf("error getting presigned url: %s", err.Error())
+	}
+	return presignedURL, nil
+}
+
 type StorageHandler struct {
-	S3API         s3iface.S3API
-	S3Bucket      string
-	S3RootFolder  string
+	Storage       Storage
+	RootFolder    string
 	Authenticator Authenticator
 	Logger        *log.Logger
 }
@@ -55,12 +88,7 @@ func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	headObjectInput := s3.HeadObjectInput{
-		Bucket: aws.String(h.S3Bucket),
-		Key:    aws.String(h.s3KeyForFileID(sf)),
-	}
-
-	resp, err := h.S3API.HeadObjectWithContext(r.Context(), &headObjectInput)
+	resp, err := h.Storage.GetObjectInfo(r.Context(), h.keyForFileID(sf))
 	if err != nil {
 		h.handleS3Error(w, r, err)
 		return
@@ -84,17 +112,11 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, _ := h.S3API.GetObjectRequest(&s3.GetObjectInput{
-		Bucket: aws.String(h.S3Bucket),
-		Key:    aws.String(h.s3KeyForFileID(sf)),
-	})
-
-	presignedURL, err := req.Presign(60 * time.Second)
+	presignedURL, err := h.Storage.GetObjectPresignedURL(r.Context(), h.keyForFileID(sf))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("error getting presigned url: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", sf.Filename))
 	http.Redirect(w, r, presignedURL, http.StatusTemporaryRedirect)
 }
@@ -132,8 +154,8 @@ func (h *StorageHandler) handleAuth(w http.ResponseWriter, r *http.Request, f *S
 	return fmt.Errorf("not authorized")
 }
 
-func (h *StorageHandler) s3KeyForFileID(f *StorageFile) string {
-	return path.Join(h.S3RootFolder, f.JobID, f.TaskID, f.NodeID, f.Filename)
+func (h *StorageHandler) keyForFileID(f *StorageFile) string {
+	return path.Join(h.RootFolder, f.JobID, f.TaskID, f.NodeID, f.Filename)
 }
 
 func (h *StorageHandler) log(format string, v ...interface{}) {
