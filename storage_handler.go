@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"path"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -86,39 +86,19 @@ func (h *StorageHandler) handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s3key := h.s3KeyForFileID(sf)
+	req, _ := h.S3API.GetObjectRequest(&s3.GetObjectInput{
+		Bucket: aws.String(h.S3Bucket),
+		Key:    aws.String(h.s3KeyForFileID(sf)),
+	})
 
-	objectInput := s3.GetObjectInput{
-		Bucket: &h.S3Bucket,
-		Key:    &s3key,
-	}
-
-	resp, err := h.S3API.GetObjectWithContext(r.Context(), &objectInput)
+	presignedURL, err := req.Presign(60 * time.Second)
 	if err != nil {
 		h.handleS3Error(w, r, err)
 		return
 	}
-	defer resp.Body.Close()
 
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", sf.Filename))
-
-	if resp.ContentLength != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*resp.ContentLength, 10))
-	}
-
-	w.WriteHeader(http.StatusOK)
-
-	written, err := io.Copy(w, resp.Body)
-	switch {
-	case resp.ContentLength != nil && written != *resp.ContentLength:
-		h.log("%s %s -> %s: partial: %d of %d bytes written", r.Method, r.URL, r.RemoteAddr, written, *resp.ContentLength)
-	case err != nil:
-		h.log("%s %s -> %s: write error %s", r.Method, r.URL, r.RemoteAddr, err.Error())
-	default:
-		h.log("%s %s -> %s: ok: %d bytes written", r.Method, r.URL, r.RemoteAddr, written)
-	}
-	// track bytes written, even if write fails
-	fileDownloadByteSize.Add(float64(written))
+	http.Redirect(w, r, presignedURL, http.StatusTemporaryRedirect)
 }
 
 func (h *StorageHandler) handleS3Error(w http.ResponseWriter, r *http.Request, err error) {
