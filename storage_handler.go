@@ -16,10 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
-type ObjectInfo struct {
-	ContentLength int64
-}
-
 type Storage interface {
 	GetObjectInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error)
 	GetObjectPresignedURL(ctx context.Context, key string) (string, error)
