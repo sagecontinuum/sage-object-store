@@ -11,17 +11,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 )
 
 var testMethods = []string{http.MethodGet, http.MethodHead}
 
 func TestHandlerGetUnauthorized(t *testing.T) {
 	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
+		Storage:       &mockStorage{},
 		Authenticator: &mockAuthenticator{false},
 	}
 	resp := getResponse(t, handler, http.MethodGet, randomURL())
@@ -32,55 +31,45 @@ func TestHandlerGetUnauthorized(t *testing.T) {
 `))
 }
 
-func TestHandlerHeadAuthorized(t *testing.T) {
-	url := randomURL()
+func TestHandlerGetAuthorized(t *testing.T) {
 	handler := &StorageHandler{
-		S3API: &mockS3Client{
-			files: map[string][]byte{
-				url: randomContent(),
+		Storage:       &mockStorage{},
+		Authenticator: &mockAuthenticator{true},
+	}
+	resp := getResponse(t, handler, http.MethodGet, randomURL())
+	assertStatusCode(t, resp, http.StatusTemporaryRedirect)
+	// TODO(sean) should we check anything about the URL or is that too much implementation detail?
+}
+
+func TestHandlerHeadIgnoreAuth(t *testing.T) {
+	for _, auth := range []bool{true, false} {
+		url := randomURL()
+		handler := &StorageHandler{
+			Storage: &mockStorage{
+				files: map[string][]byte{
+					url: randomContent(),
+				},
 			},
-		},
-		Authenticator: &mockAuthenticator{false},
-	}
-	resp := getResponse(t, handler, http.MethodHead, url)
-	assertStatusCode(t, resp, http.StatusOK)
-	assertReadContent(t, resp, []byte(``))
-}
-
-func TestHandlerNotFound(t *testing.T) {
-	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
-		Authenticator: &mockAuthenticator{true},
-	}
-	for _, method := range testMethods {
-		t.Run(method, func(t *testing.T) {
-			resp := getResponse(t, handler, method, randomURL())
-			assertStatusCode(t, resp, http.StatusNotFound)
-		})
+			Authenticator: &mockAuthenticator{auth},
+		}
+		resp := getResponse(t, handler, http.MethodHead, url)
+		assertStatusCode(t, resp, http.StatusOK)
+		assertReadContent(t, resp, []byte(``))
 	}
 }
 
-func TestHandlerOK(t *testing.T) {
-	content := randomContent()
-	url := randomURL()
+func TestHandlerHeadNotFound(t *testing.T) {
 	handler := &StorageHandler{
-		S3API: &mockS3Client{
-			files: map[string][]byte{url: content},
-		},
+		Storage:       &mockStorage{},
 		Authenticator: &mockAuthenticator{true},
 	}
-	for _, method := range testMethods {
-		t.Run(method, func(t *testing.T) {
-			resp := getResponse(t, handler, method, url)
-			assertStatusCode(t, resp, http.StatusOK)
-			assertContentLength(t, resp, len(content))
-		})
-	}
+	resp := getResponse(t, handler, http.MethodHead, randomURL())
+	assertStatusCode(t, resp, http.StatusNotFound)
 }
 
 func TestHandlerValidURL(t *testing.T) {
 	handler := &StorageHandler{
-		S3API: &mockS3Client{
+		Storage: &mockStorage{
 			files: map[string][]byte{
 				"job/task/node/1643842551600000001-sample.jpg":                   randomContent(),
 				"job/task/node/1643842551600000002-sample.jpg":                   randomContent(),
@@ -112,29 +101,17 @@ func TestHandlerValidURL(t *testing.T) {
 		for _, method := range testMethods {
 			t.Run(name+"/"+method, func(t *testing.T) {
 				resp := getResponse(t, handler, method, tc.URL)
-				if tc.Valid {
+				switch {
+				case tc.Valid && method == http.MethodGet:
+					assertStatusCode(t, resp, http.StatusTemporaryRedirect)
+				case tc.Valid && method == http.MethodHead:
 					assertStatusCode(t, resp, http.StatusOK)
-				} else {
+				default:
 					assertStatusCode(t, resp, http.StatusBadRequest)
 				}
 			})
 		}
 	}
-}
-
-func TestHandlerGetContent(t *testing.T) {
-	content := randomContent()
-	url := randomURL()
-	handler := &StorageHandler{
-		S3API: &mockS3Client{
-			files: map[string][]byte{url: content},
-		},
-		Authenticator: &mockAuthenticator{true},
-	}
-	resp := getResponse(t, handler, http.MethodGet, url)
-	assertStatusCode(t, resp, http.StatusOK)
-	assertContentLength(t, resp, len(content))
-	assertReadContent(t, resp, content)
 }
 
 func TestHandlerGetContentDisposition(t *testing.T) {
@@ -153,20 +130,20 @@ func TestHandlerGetContentDisposition(t *testing.T) {
 		files[tc.URL] = randomContent()
 	}
 	handler := &StorageHandler{
-		S3API:         &mockS3Client{files: files},
+		Storage:       &mockStorage{files: files},
 		Authenticator: &mockAuthenticator{true},
 	}
 
 	for _, tc := range testcases {
 		resp := getResponse(t, handler, http.MethodGet, tc.URL)
-		assertStatusCode(t, resp, http.StatusOK)
+		assertStatusCode(t, resp, http.StatusTemporaryRedirect)
 		assertContentDisposition(t, resp, fmt.Sprintf("attachment; filename=%s", tc.Filename))
 	}
 }
 
 func TestHandlerCORSHeaders(t *testing.T) {
 	handler := &StorageHandler{
-		S3API:         &mockS3Client{},
+		Storage:       &mockStorage{},
 		Authenticator: &mockAuthenticator{true},
 	}
 
@@ -188,49 +165,25 @@ func TestHandlerCORSHeaders(t *testing.T) {
 }
 
 // mockS3Client provides a fixed set of content using an in-memory map of URLs to data
-type mockS3Client struct {
+type mockStorage struct {
 	files map[string][]byte
-	s3iface.S3API
 }
 
-func (m *mockS3Client) HeadObjectWithContext(ctx context.Context, obj *s3.HeadObjectInput, options ...request.Option) (*s3.HeadObjectOutput, error) {
-	content, err := m.getContent(obj.Key)
-	if err != nil {
-		return nil, err
-	}
-	lang := "klingon"
-	length := int64(len(content))
-	return &s3.HeadObjectOutput{
-		ContentLanguage: &lang,
-		ContentLength:   &length,
-	}, nil
-}
-
-func (m *mockS3Client) GetObjectWithContext(ctx context.Context, obj *s3.GetObjectInput, options ...request.Option) (*s3.GetObjectOutput, error) {
-	content, err := m.getContent(obj.Key)
-	if err != nil {
-		return nil, err
-	}
-	length := int64(len(content))
-	return &s3.GetObjectOutput{
-		Body:          io.NopCloser(bytes.NewReader(content)),
-		ContentLength: &length,
-	}, nil
-}
-
-func (m *mockS3Client) getContent(key *string) ([]byte, error) {
-	if key == nil {
-		return nil, fmt.Errorf("key is nil")
-	}
-	if m.files == nil {
+func (s *mockStorage) GetObjectInfo(ctx context.Context, key string) (*s3.HeadObjectOutput, error) {
+	if s.files == nil {
 		return nil, awserr.New(s3.ErrCodeNoSuchKey, "", nil)
 	}
-	content, ok := m.files[*key]
+	content, ok := s.files[key]
 	if !ok {
-		// TODO(sean) check actual behavior of s3 endpoint and ensure we have mocked it.
 		return nil, awserr.New(s3.ErrCodeNoSuchKey, "", nil)
 	}
-	return content, nil
+	return &s3.HeadObjectOutput{
+		ContentLength: aws.Int64(int64(len(content))),
+	}, nil
+}
+
+func (s *mockStorage) GetObjectPresignedURL(ctx context.Context, key string) (string, error) {
+	return fmt.Sprintf("https://real-storage-host/%s", key), nil
 }
 
 // mockAuthenticator provides a simple "allow all" or "reject all" policy for testing
@@ -255,12 +208,6 @@ func getResponse(t *testing.T, h http.Handler, method string, url string) *http.
 func assertStatusCode(t *testing.T, resp *http.Response, status int) {
 	if resp.StatusCode != status {
 		t.Fatalf("incorrect status code. got: %d want: %d", resp.StatusCode, status)
-	}
-}
-
-func assertContentLength(t *testing.T, resp *http.Response, length int) {
-	if resp.ContentLength != int64(length) {
-		t.Fatalf("incorrect content length. got: %d want: %d", resp.StatusCode, length)
 	}
 }
 
