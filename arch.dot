@@ -5,9 +5,10 @@ digraph {
     svc [label="service",shape=box]
     client [label="client"]
 
-    svc -> osn [label="2. get presigned url"]
-    osn -> client [label="3. serve data"]
     client -> svc [label="1. authenticate"]
+    svc -> osn [label="2. get presigned url"]
+    svc -> client [label="3. redirect to url"]
+    osn -> client [label="4. serve data"]
 
     {rank=same;osn;svc}
 }
