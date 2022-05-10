@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -58,7 +59,11 @@ func (a *TableAuthenticator) Authorized(f *StorageFile, username, password strin
 }
 
 func (a *TableAuthenticator) authenticated(username, password string, hasAuth bool) bool {
-	return hasAuth && username == a.config.Username && password == a.config.Password
+	return hasAuth && constantTimeStringEqual(username, a.config.Username) && constantTimeStringEqual(password, a.config.Password)
+}
+
+func constantTimeStringEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func (m *TableAuthenticator) allowed(f *StorageFile) bool {
