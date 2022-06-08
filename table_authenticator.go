@@ -59,11 +59,14 @@ func (a *TableAuthenticator) Authorized(f *StorageFile, username, password strin
 }
 
 func (a *TableAuthenticator) authenticated(username, password string, hasAuth bool) bool {
-	return hasAuth && constantTimeStringEqual(username, a.config.Username) && constantTimeStringEqual(password, a.config.Password)
-}
+	if !hasAuth {
+		return false
+	}
 
-func constantTimeStringEqual(a, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+	// security: use constant time compare of combined username and password to avoid leaking information.
+	x := subtle.ConstantTimeCompare([]byte(username), []byte(a.config.Username))
+	y := subtle.ConstantTimeCompare([]byte(password), []byte(a.config.Password))
+	return (x & y) == 1
 }
 
 func (m *TableAuthenticator) allowed(f *StorageFile) bool {
