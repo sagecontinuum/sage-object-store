@@ -20,11 +20,15 @@ type TableAuthenticator struct {
 	mu     sync.RWMutex
 }
 
-type TableAuthenticatorConfig struct {
-	// NOTE(sean) username / password is part of the config, as this should eventually be "pluggable" against an auth system
+type Credential struct {
 	Username string
 	Password string
-	Nodes    map[string]*TableAuthenticatorNode
+}
+
+type TableAuthenticatorConfig struct {
+	// NOTE(sean) username / password is part of the config, as this should eventually be "pluggable" against an auth system
+	Credentials []*Credential
+	Nodes       map[string]*TableAuthenticatorNode
 }
 
 type TableAuthenticatorNode struct {
@@ -63,10 +67,16 @@ func (a *TableAuthenticator) authenticated(username, password string, hasAuth bo
 		return false
 	}
 
-	// security: use constant time compare of combined username and password to avoid leaking information.
-	x := subtle.ConstantTimeCompare([]byte(username), []byte(a.config.Username))
-	y := subtle.ConstantTimeCompare([]byte(password), []byte(a.config.Password))
-	return (x & y) == 1
+	for _, credential := range a.config.Credentials {
+		// security: use constant time compare of combined username and password to avoid leaking information.
+		x := subtle.ConstantTimeCompare([]byte(username), []byte(credential.Username))
+		y := subtle.ConstantTimeCompare([]byte(password), []byte(credential.Password))
+		if (x & y) == 1 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (m *TableAuthenticator) allowed(f *StorageFile) bool {
@@ -145,4 +155,25 @@ func readNodeTable(r io.Reader) (map[string]*TableAuthenticatorNode, error) {
 	}
 
 	return nodes, nil
+}
+
+func ParseStaticCredentials(s string) ([]*Credential, error) {
+	credentials := []*Credential{}
+
+	if s == "" {
+		return credentials, nil
+	}
+
+	for _, s := range strings.Split(s, ",") {
+		username, password, ok := strings.Cut(s, ":")
+		if !ok {
+			return nil, fmt.Errorf("failed to parse static credentials")
+		}
+		credentials = append(credentials, &Credential{
+			Username: username,
+			Password: password,
+		})
+	}
+
+	return credentials, nil
 }

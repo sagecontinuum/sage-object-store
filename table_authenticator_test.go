@@ -26,8 +26,12 @@ func TestAuthorized(t *testing.T) {
 	auth := NewTableAuthenticator()
 
 	auth.UpdateConfig(&TableAuthenticatorConfig{
-		Username: "user",
-		Password: "secret",
+		Credentials: []*Credential{
+			{
+				Username: "user",
+				Password: "secret",
+			},
+		},
 		Nodes: map[string]*TableAuthenticatorNode{
 			"commissioned1Y": {
 				Public:         true,
@@ -150,9 +154,14 @@ func TestAuthorizedFuzz(t *testing.T) {
 
 	auth := NewTableAuthenticator()
 	auth.UpdateConfig(&TableAuthenticatorConfig{
-		Username: "user",
-		Password: "secret",
-		Nodes:    nodes,
+		Credentials: []*Credential{
+			{
+				Username: "user",
+				Password: "secret",
+			},
+		},
+
+		Nodes: nodes,
 	})
 
 	for nodeID, node := range nodes {
@@ -187,6 +196,74 @@ func TestAuthorizedFuzz(t *testing.T) {
 				})
 			})
 		}
+	}
+}
+
+func TestParseStaticCredentials(t *testing.T) {
+	testcases := map[string]struct {
+		Input             string
+		ExpectError       bool
+		ExpectCredentials []*Credential
+	}{
+		"empty": {
+			Input:             "",
+			ExpectError:       false,
+			ExpectCredentials: []*Credential{},
+		},
+		"single": {
+			Input:       "user:pass",
+			ExpectError: false,
+			ExpectCredentials: []*Credential{
+				{
+					Username: "user",
+					Password: "pass",
+				},
+			},
+		},
+		"multiple": {
+			Input:       "user:pass,user2:pass2",
+			ExpectError: false,
+			ExpectCredentials: []*Credential{
+				{
+					Username: "user",
+					Password: "pass",
+				},
+				{
+					Username: "user2",
+					Password: "pass2",
+				},
+			},
+		},
+		"missingSep": {
+			Input:             "user:pass,user2pass2",
+			ExpectError:       true,
+			ExpectCredentials: []*Credential{},
+		},
+		"missingPassword": {
+			Input:             "user",
+			ExpectError:       true,
+			ExpectCredentials: []*Credential{},
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			credentials, err := ParseStaticCredentials(tc.Input)
+
+			if tc.ExpectError && err == nil {
+				t.Fatalf("expecting error but got none")
+			}
+
+			if !tc.ExpectError && err != nil {
+				t.Fatalf("not expecting error but got %s", err)
+			}
+
+			for i, c := range tc.ExpectCredentials {
+				if credentials[i].Username != c.Username || credentials[i].Password != c.Password {
+					t.Fatalf("expecting credential %v but got %v", c, credentials[i])
+				}
+			}
+		})
 	}
 }
 

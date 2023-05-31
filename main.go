@@ -22,8 +22,14 @@ func main() {
 
 	router := http.NewServeMux()
 
+	authStaticCredentials, err := ParseStaticCredentials(os.Getenv("authStaticCredentials"))
+	if err != nil {
+		log.Fatalf("failed to parse authStaticCredentials env var")
+	}
+
 	auth := NewTableAuthenticator()
-	go periodicallyUpdateAuthConfig(auth)
+
+	go periodicallyUpdateAuthConfig(authStaticCredentials, auth)
 
 	credentials := credentials.NewStaticCredentials(mustGetenv("s3accessKeyID"), mustGetenv("s3secretAccessKey"), "")
 
@@ -80,7 +86,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(*addr, router))
 }
 
-func periodicallyUpdateAuthConfig(auth *TableAuthenticator) {
+func periodicallyUpdateAuthConfig(authStaticCredentials []*Credential, auth *TableAuthenticator) {
 	for {
 		nodes, err := GetNodeTableFromURL(mustGetenv("productionURL"))
 
@@ -91,9 +97,8 @@ func periodicallyUpdateAuthConfig(auth *TableAuthenticator) {
 		}
 
 		auth.UpdateConfig(&TableAuthenticatorConfig{
-			Username: os.Getenv("policyRestrictedUsername"),
-			Password: os.Getenv("policyRestrictedPassword"),
-			Nodes:    nodes,
+			Credentials: authStaticCredentials,
+			Nodes:       nodes,
 		})
 
 		log.Printf("updated auth config")
