@@ -1,6 +1,5 @@
 version: '3.7'
 
-
 services:
 
   sage-obj:
@@ -32,8 +31,7 @@ services:
       policyRestrictedNodes: "abc,bca"
       policyRestrictedTaskSubstrings: "bottom,street"
 
-      policyRestrictedUsername: "user"
-      policyRestrictedPassword: "secret"
+      authStaticCredentials: "user:secret"
 
       productionURL: ${productionURL}
     #volumes:
@@ -52,11 +50,16 @@ services:
       MINIO_ROOT_PASSWORD: minio123
     command: server /data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:9000/minio/health/live"
+        ]
       interval: 30s
       timeout: 20s
       retries: 3
-
   #db:
   #  image: mysql:8
   #  env_file: mysql.env
@@ -67,5 +70,5 @@ services:
 
 volumes:
   sage-data:
-  #stage-storage-db:
+    #stage-storage-db:
 
