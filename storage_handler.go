@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"path"
@@ -61,6 +62,13 @@ type StorageFile struct {
 }
 
 func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Requests which provide an authorization header should be forwarded to the Django site so they can
+	// start using the new auth system.
+	if r.Header.Get("authorization") != "" {
+		h.handleProxyToDjango(w, r)
+		return
+	}
+
 	h.log("%s %s -> %s: serving", r.Method, r.URL, r.RemoteAddr)
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -75,6 +83,39 @@ func (h *StorageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+func (h *StorageHandler) handleProxyToDjango(w http.ResponseWriter, r *http.Request) {
+	h.log("client provided authorization. proxying to django downloads endpoint. %s", r.URL.Path)
+	auth := r.Header.Get("authorization")
+	proxyURL := "https://auth.sagecontinuum.org/downloads/" + r.URL.Path
+
+	req, err := http.NewRequest(http.MethodGet, proxyURL, nil)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	// Forward Authorization to Django site.
+	req.Header.Set("authorization", auth)
+
+	// Create http Client which does not follow redirects.
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	// Forward
+	w.Header().Set("location", resp.Header.Get("location"))
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func (h *StorageHandler) handleHEAD(w http.ResponseWriter, r *http.Request) {
